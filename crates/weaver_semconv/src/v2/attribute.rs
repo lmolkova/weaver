@@ -56,6 +56,11 @@ pub struct AttributeRef {
     #[serde(default)]
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, YamlValue>,
+    /// Specifies if the attribute is (especially) relevant for sampling
+    /// and thus should be set at span start. It defaults to false.
+    /// Note: this field is experimental.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sampling_relevant: Option<bool>,
 }
 
 impl AttributeRef {
@@ -68,7 +73,7 @@ impl AttributeRef {
             examples: self.examples,
             tag: None,
             requirement_level: self.requirement_level,
-            sampling_relevant: None,
+            sampling_relevant: self.sampling_relevant,
             note: self.note,
             stability: self.stability,
             deprecated: self.deprecated,
@@ -90,7 +95,7 @@ impl AttributeRef {
             examples: self.examples,
             tag: None,
             requirement_level: self.requirement_level,
-            sampling_relevant: None,
+            sampling_relevant: self.sampling_relevant,
             note: self.note,
             stability: self.stability,
             deprecated: self.deprecated,

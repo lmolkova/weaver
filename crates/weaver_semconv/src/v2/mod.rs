@@ -12,11 +12,15 @@ use crate::{
     group::GroupSpec,
     semconv::{Imports, SemConvSpecV1},
     stability::Stability,
-    v2::{attribute::AttributeDef, entity::Entity, event::Event, metric::Metric, span::Span},
+    v2::{
+        attribute::AttributeDef, attribute_group::AttributeGroup, entity::Entity, event::Event,
+        metric::Metric, span::Span,
+    },
     YamlValue,
 };
 
 pub mod attribute;
+pub mod attribute_group;
 pub mod entity;
 pub mod event;
 pub mod metric;
@@ -43,6 +47,10 @@ pub struct CommonFields {
     /// Annotations for the attribute or signal.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub annotations: BTreeMap<String, YamlValue>,
+    /// Which attribute groups this group includes
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub include_groups: Vec<String>,
 }
 
 /// A semconv file is a collection of semantic convention groups (i.e. [`GroupSpec`]).
@@ -64,6 +72,9 @@ pub struct SemConvSpecV2 {
     /// A collection of semantic conventions for Span signals.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub(crate) spans: Vec<Span>,
+    /// A collection of semantic conventions for AttributeGroups.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub(crate) attribute_groups: Vec<AttributeGroup>,
 
     /// A list of imports referencing groups defined in a dependent registry.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -72,10 +83,18 @@ pub struct SemConvSpecV2 {
 
 impl SemConvSpecV2 {
     /// Converts the version 2 schema into the version 1 group spec.
-    pub(crate) fn into_v1_specification(self, attribute_group_name: &str) -> SemConvSpecV1 {
-        SemConvSpecV1 {
-            groups: vec![GroupSpec {
-                id: format!("registry.{attribute_group_name}"),
+    pub(crate) fn into_v1_specification(self, file_name: &str) -> SemConvSpecV1 {
+        log::debug!(
+            "Translating v2 spec into v1 spec for {}",
+            file_name
+        );
+
+        let mut groups = Vec::new();
+
+        // Only create synthetic attribute group if there are attribute definitions
+        if !self.attributes.is_empty() {
+            groups.push(GroupSpec {
+                id: format!("registry.{file_name}"),
                 r#type: crate::group::GroupType::AttributeGroup,
                 attributes: self
                     .attributes
@@ -84,13 +103,22 @@ impl SemConvSpecV2 {
                     .collect(),
                 brief: "<synthetic v2>".to_owned(),
                 ..Default::default()
-            }]
-            .into_iter()
-            .chain(self.entities.into_iter().map(|e| e.into_v1_group()))
-            .chain(self.events.into_iter().map(|e| e.into_v1_group()))
-            .chain(self.metrics.into_iter().map(|m| m.into_v1_group()))
-            .chain(self.spans.into_iter().map(|s| s.into_v1_group()))
-            .collect(),
+            });
+        }
+
+        // Add all other groups
+        groups.extend(self.entities.into_iter().map(|e| e.into_v1_group()));
+        groups.extend(self.events.into_iter().map(|e| e.into_v1_group()));
+        groups.extend(self.metrics.into_iter().map(|m| m.into_v1_group()));
+        groups.extend(self.spans.into_iter().map(|s| s.into_v1_group()));
+        groups.extend(
+            self.attribute_groups
+                .into_iter()
+                .map(|ag| ag.into_v1_group()),
+        );
+
+        SemConvSpecV1 {
+            groups,
             imports: self.imports,
         }
     }
@@ -102,6 +130,7 @@ impl SemConvSpecV2 {
             && self.events.is_empty()
             && self.metrics.is_empty()
             && self.spans.is_empty()
+            && self.attribute_groups.is_empty()
     }
 }
 
@@ -131,12 +160,20 @@ attributes:
     type: int
     brief: A test attribute
     stability: stable
+attribute_groups:
+  - id: test
+    brief: A test attribute group
+    stability: development
+    attributes:
+      - ref: test.attribute
 metrics:
   - name: my_metric
     brief: Test metric
     stability: stable
     instrument: histogram
     unit: s
+    include_groups:
+      - test
 entities:
   - type: my_entity
     identity:
@@ -151,7 +188,7 @@ events:
     stability: stable
 spans:
   - type: my_span
-    name: 
+    name:
       note: "{some} {name}"
     stability: stable
     kind: client
@@ -191,6 +228,8 @@ groups:
   type: metric
   metric_name: my_metric
   brief: Test metric
+  include_groups:
+  - test
   stability: stable
   instrument: histogram
   unit: s
@@ -200,6 +239,12 @@ groups:
   name: "{some} {name}"
   span_kind: client
   stability: stable
+- id: test
+  type: attribute_group
+  brief: A test attribute group
+  stability: development
+  attributes:
+    - ref: test.attribute
 imports:
   metrics:
     - foo/*

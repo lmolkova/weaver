@@ -346,6 +346,7 @@ impl ResolvedSemconvRegistry {
             Ok(registry) => registry,
             Err(e) => return Err(e.into()),
         };
+        // THIS IS THE PLACE
         let schema = match SchemaResolver::resolve_semantic_convention_registry(
             &mut registry,
             include_unreferenced,

@@ -40,6 +40,7 @@ impl Event {
             note: self.common.note,
             prefix: Default::default(),
             extends: None,
+            include_groups: self.common.include_groups,
             stability: Some(self.common.stability),
             deprecated: self.common.deprecated,
             attributes: self
@@ -61,10 +62,10 @@ impl Event {
                 Some(self.common.annotations)
             },
             entity_associations: self.entity_associations,
+            visibility: None,
         }
     }
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

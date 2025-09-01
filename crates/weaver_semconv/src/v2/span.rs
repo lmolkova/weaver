@@ -6,7 +6,6 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    attribute::AttributeSpec,
     group::{GroupSpec, GroupType, SpanKindSpec},
     v2::{attribute::AttributeRef, signal_id::SignalId, CommonFields},
 };
@@ -30,7 +29,7 @@ pub struct Span {
     /// List of attributes that belong to the semantic convention.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub attributes: Vec<SpanAttributeRef>,
+    pub attributes: Vec<AttributeRef>,
     /// Which resources this span should be associated with.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
@@ -51,6 +50,7 @@ impl Span {
             note: self.common.note,
             prefix: Default::default(),
             extends: None,
+            include_groups: self.common.include_groups,
             stability: Some(self.common.stability),
             deprecated: self.common.deprecated,
             attributes: self
@@ -63,7 +63,7 @@ impl Span {
             metric_name: None,
             instrument: None,
             unit: None,
-            name: Some(self.name.note),
+            name: None,
             display_name: None,
             body: None,
             annotations: if self.common.annotations.is_empty() {
@@ -72,6 +72,7 @@ impl Span {
                 Some(self.common.annotations)
             },
             entity_associations: self.entity_associations,
+            visibility: None,
         }
     }
 }
@@ -83,46 +84,6 @@ impl Span {
 pub struct SpanName {
     /// Required description of how a span name should be created.
     pub note: String,
-}
-
-/// A refinement of an Attribute for a span.
-#[derive(Serialize, Deserialize, Debug, Clone, JsonSchema)]
-#[serde(deny_unknown_fields)]
-#[serde(rename_all = "snake_case")]
-pub struct SpanAttributeRef {
-    /// Baseline attribute reference.
-    #[serde(flatten)]
-    pub base: AttributeRef,
-    /// Specifies if the attribute is (especially) relevant for sampling
-    /// and thus should be set at span start. It defaults to false.
-    /// Note: this field is experimental.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sampling_relevant: Option<bool>,
-}
-
-impl SpanAttributeRef {
-    /// Converts a v2 refinement into a v1 AttributeSpec.
-    #[must_use]
-    pub fn into_v1_attribute(self) -> AttributeSpec {
-        AttributeSpec::Ref {
-            r#ref: self.base.r#ref,
-            brief: self.base.brief,
-            examples: self.base.examples,
-            tag: None,
-            requirement_level: self.base.requirement_level,
-            sampling_relevant: self.sampling_relevant,
-            note: self.base.note,
-            stability: self.base.stability,
-            deprecated: self.base.deprecated,
-            prefix: false,
-            annotations: if self.base.annotations.is_empty() {
-                None
-            } else {
-                Some(self.base.annotations)
-            },
-            role: None,
-        }
-    }
 }
 
 #[cfg(test)]

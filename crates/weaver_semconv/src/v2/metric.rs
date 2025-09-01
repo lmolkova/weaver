@@ -50,6 +50,7 @@ impl Metric {
             note: self.common.note,
             prefix: Default::default(),
             extends: None,
+            include_groups: self.common.include_groups,
             stability: Some(self.common.stability),
             deprecated: self.common.deprecated,
             attributes: self
@@ -71,6 +72,7 @@ impl Metric {
                 Some(self.common.annotations)
             },
             entity_associations: self.entity_associations,
+            visibility: None,
         }
     }
 }
