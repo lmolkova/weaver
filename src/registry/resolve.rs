@@ -82,7 +82,7 @@ pub(crate) fn command(args: &RegistryResolveArgs) -> Result<ExitDirectives, Diag
         let resolved_v2: ResolvedV2 = resolved.try_into()?;
         resolved_v2.check_after_resolution_policy(&mut diag_msgs)?;
         output
-            .generate(&resolved_v2.template_schema())
+            .generate(&resolved_v2.resolved_schema())
             .map_err(DiagnosticMessages::from)?;
     } else {
         resolved.check_after_resolution_policy(&mut diag_msgs)?;
