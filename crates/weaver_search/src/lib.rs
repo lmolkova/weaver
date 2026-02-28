@@ -474,7 +474,9 @@ fn score_match(query: &str, item: &SearchableItem) -> u32 {
 mod tests {
     use super::*;
     use std::collections::BTreeMap;
-    use weaver_forge::v2::registry::{ForgeResolvedRegistry, Refinements, Registry, V2_MATERIALIZED_FILE_FORMAT};
+    use weaver_forge::v2::registry::{
+        ForgeResolvedRegistry, Refinements, Registry, V2_MATERIALIZED_FILE_FORMAT,
+    };
     use weaver_semconv::attribute::AttributeType;
     use weaver_semconv::deprecated::Deprecated;
     use weaver_semconv::group::{InstrumentSpec, SpanKindSpec};

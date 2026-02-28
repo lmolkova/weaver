@@ -16,7 +16,7 @@ use weaver_semconv::{
 use weaver_version::v2::{RegistryChanges, SchemaChanges, SchemaItemChange};
 
 use crate::{
-    V2_DIFF_FILE_FORMAT, V2_RESOLVED_FILE_FORMAT, v2::{
+    v2::{
         attribute::Attribute,
         attribute_group::AttributeGroup,
         catalog::{AttributeCatalog, Catalog},
@@ -26,7 +26,8 @@ use crate::{
         registry::Registry,
         span::{Span, SpanRefinement},
         stats::Stats,
-    }
+    },
+    V2_DIFF_FILE_FORMAT, V2_RESOLVED_FILE_FORMAT,
 };
 
 pub mod attribute;

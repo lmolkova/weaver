@@ -868,7 +868,7 @@ mod tests {
     use crate::extensions::case::case_converter;
     use crate::file_loader::FileSystemFileLoader;
     use crate::registry::ResolvedRegistry;
-    use crate::v2::registry::{ForgeResolvedRegistry, Refinements, Registry as V2Registry};
+    use crate::v2::registry::{ForgeResolvedRegistry, Refinements, Registry as V2Registry, V2_MATERIALIZED_FILE_FORMAT};
     use crate::v2::span::Span;
     use crate::{run_filter_raw, OutputDirective, TemplateEngine};
     use weaver_semconv::group::SpanKindSpec;
@@ -946,6 +946,7 @@ mod tests {
         fs::remove_dir_all(format!("observed_output/{target}")).unwrap_or_default();
 
         let registry = ForgeResolvedRegistry {
+            file_format: V2_MATERIALIZED_FILE_FORMAT.to_owned(),
             schema_url: "https://example.com/1.0.0".try_into().unwrap(),
             registry: V2Registry {
                 attributes: vec![],

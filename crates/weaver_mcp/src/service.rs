@@ -381,7 +381,9 @@ mod tests {
     use weaver_forge::v2::entity::Entity;
     use weaver_forge::v2::event::Event;
     use weaver_forge::v2::metric::Metric;
-    use weaver_forge::v2::registry::{ForgeResolvedRegistry, Refinements, Registry, V2_MATERIALIZED_FILE_FORMAT};
+    use weaver_forge::v2::registry::{
+        ForgeResolvedRegistry, Refinements, Registry, V2_MATERIALIZED_FILE_FORMAT,
+    };
     use weaver_forge::v2::span::Span;
     use weaver_search::SearchType;
     use weaver_semconv::attribute::AttributeType;

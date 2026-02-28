@@ -263,7 +263,10 @@ pub fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use weaver_forge::{registry::{ResolvedGroup, ResolvedRegistry}, v2::registry::V2_MATERIALIZED_FILE_FORMAT};
+    use weaver_forge::{
+        registry::{ResolvedGroup, ResolvedRegistry},
+        v2::registry::V2_MATERIALIZED_FILE_FORMAT,
+    };
     use weaver_resolved_schema::attribute::Attribute;
     use weaver_semconv::{
         attribute::{AttributeType, Examples, PrimitiveOrArrayTypeSpec, RequirementLevel},
