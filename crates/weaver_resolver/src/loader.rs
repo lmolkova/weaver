@@ -35,7 +35,7 @@ pub enum LoadedSemconvRegistry {
         dependencies: Vec<LoadedSemconvRegistry>,
     },
     /// The semconv repository is already resolved and can be used as-is.
-    Resolved(V1Schema),
+    Resolved(Box<V1Schema>),
     /// The semconv repository is already resolved and can be used as-is.
     ResolvedV2(V2Schema),
 }

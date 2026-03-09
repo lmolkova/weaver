@@ -44,7 +44,7 @@ impl SchemaResolver {
                 dependencies,
             } => Self::resolve_registry(repo, specs, imports, dependencies, include_unreferenced),
             LoadedSemconvRegistry::Resolved(resolved_telemetry_schema) => {
-                WResult::Ok(resolved_telemetry_schema)
+                WResult::Ok(*resolved_telemetry_schema)
             }
             LoadedSemconvRegistry::ResolvedV2(_) => {
                 todo!("Converting V2 schema back into V1 is unsupported")
@@ -83,7 +83,7 @@ impl SchemaResolver {
                     );
                 }
                 LoadedSemconvRegistry::Resolved(schema) => {
-                    opt_resolved_dependencies.push(WResult::Ok(schema.into()));
+                    opt_resolved_dependencies.push(WResult::Ok((*schema).into()));
                 }
                 LoadedSemconvRegistry::ResolvedV2(schema) => {
                     opt_resolved_dependencies.push(WResult::Ok(schema.into()));
@@ -124,6 +124,7 @@ impl SchemaResolver {
             include_unreferenced,
         )
         .map(move |resolved_registry| {
+            let root_attributes = attr_catalog.drain_root_attributes();
             let catalog = Catalog::from_attributes(attr_catalog.drain_attributes());
 
             ResolvedTelemetrySchema {
@@ -137,6 +138,7 @@ impl SchemaResolver {
                 dependencies: vec![],
                 versions: None, // ToDo LQ: Implement this!
                 registry_manifest: manifest,
+                root_attributes,
             }
         })
     }
@@ -246,6 +248,9 @@ mod tests {
                                     attr.requirement_level,
                                     RequirementLevel::Basic(BasicRequirementLevelSpec::Required)
                                 );
+                                // The brief should come from the original definition in otel.registry,
+                                // NOT from db.client.metrics which refines it with a different brief.
+                                assert_eq!(attr.brief, "The error type.".to_owned());
                             }
                             _ => {
                                 panic!("Unexpected attribute name: {}", attr.name);
