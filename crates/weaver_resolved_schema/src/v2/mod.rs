@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use weaver_semconv::{
     deprecated::Deprecated,
     group::GroupType,
+    manifest::Dependency,
     schema_url::SchemaUrl,
     v2::{
         attribute_group::AttributeGroupVisibilitySpec, signal_id::SignalId, span::SpanName,
@@ -51,6 +52,9 @@ pub struct ResolvedTelemetrySchema {
     pub file_format: String,
     /// Schema URL that this file is published at.
     pub schema_url: SchemaUrl,
+    /// Flat list of all transitive dependencies (direct and indirect), in load order.
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub dependencies: Vec<Dependency>,
     /// Catalog of attributes. Note: this will include duplicates for the same key.
     pub attribute_catalog: Vec<Attribute>,
     /// The registry that this schema belongs to.
@@ -136,6 +140,7 @@ impl TryFrom<crate::ResolvedTelemetrySchema> for ResolvedTelemetrySchema {
         Ok(ResolvedTelemetrySchema {
             file_format: V2_RESOLVED_FILE_FORMAT.to_owned(),
             schema_url,
+            dependencies: vec![],
             attribute_catalog,
             registry,
             refinements,
@@ -1230,6 +1235,7 @@ mod tests {
             schema_url: "http://test/schemas/1.0"
                 .try_into()
                 .expect("Should be valid schema url"),
+            dependencies: vec![],
             attribute_catalog: vec![],
             registry: Registry {
                 attributes: vec![],

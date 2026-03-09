@@ -96,6 +96,7 @@ impl<'a> WeaverEngine<'a> {
         diag_msgs: &mut DiagnosticMessages,
     ) -> Result<Resolved, Error> {
         let registry_path_repr: String = loaded.loaded.registry_path_repr().to_owned();
+        let dep_list = collect_flat_deps(&loaded.loaded);
         let resolved =
             SchemaResolver::resolve(loaded.loaded, self.registry_config.include_unreferenced)
                 .capture_non_fatal_errors(diag_msgs)?;
@@ -109,8 +110,44 @@ impl<'a> WeaverEngine<'a> {
             template_schema: template,
             registry_path_repr,
             policy_engine: loaded.policy_engine,
+            dep_list,
         })
     }
+}
+
+/// Builds the flat transitive dependency list from a loaded registry.
+///
+/// For each direct V2 resolved dependency, finds its resolved schema URI via
+/// `resolved_schema_uri()`, then appends that dep plus the deps already embedded
+/// in the dep's own resolved schema (which are already transitively expanded).
+fn collect_flat_deps(
+    loaded: &LoadedSemconvRegistry,
+) -> Vec<weaver_semconv::manifest::Dependency> {
+    use weaver_semconv::manifest::Dependency;
+    let LoadedSemconvRegistry::Unresolved { repo, .. } = loaded else {
+        return vec![];
+    };
+    let Some(manifest) = repo.manifest() else {
+        return vec![];
+    };
+    let mut result = Vec::new();
+    for dep in manifest.dependencies() {
+        let Ok(dep_repo) = RegistryRepo::try_new_dependency(dep, &mut vec![]) else {
+            continue;
+        };
+        let Some(resolved_uri) = dep_repo.resolved_schema_uri() else {
+            continue;
+        };
+        result.push(Dependency {
+            schema_url: dep.schema_url.clone(),
+            registry_path: Some(resolved_uri.clone()),
+        });
+        // The dep's resolved schema carries its own flat transitive list.
+        if let Ok(dep_schema) = weaver_resolver::load_resolved_v2_schema(&resolved_uri) {
+            result.extend(dep_schema.dependencies);
+        }
+    }
+    result
 }
 
 /// A loaded set of weaver definition files.
@@ -152,6 +189,7 @@ pub struct Resolved {
     template_schema: ResolvedRegistry,
     registry_path_repr: String,
     policy_engine: Option<Engine>,
+    dep_list: Vec<weaver_semconv::manifest::Dependency>,
 }
 impl Resolved {
     /// Returns the resolved schema.
@@ -258,7 +296,7 @@ impl ResolvedV2 {
         &self.resolved_schema
     }
 
-    /// Drops resolved and just gives the template schema.
+    /// Drops resolved and just gives the resolved schema.
     pub fn into_resolved_schema(self) -> weaver_resolved_schema::v2::ResolvedTelemetrySchema {
         self.resolved_schema
     }
@@ -343,8 +381,9 @@ impl TryFrom<Resolved> for ResolvedV2 {
     type Error = Error;
 
     fn try_from(value: Resolved) -> Result<Self, Self::Error> {
-        let resolved_schema: weaver_resolved_schema::v2::ResolvedTelemetrySchema =
+        let mut resolved_schema: weaver_resolved_schema::v2::ResolvedTelemetrySchema =
             value.resolved_schema.try_into()?;
+        resolved_schema.dependencies = value.dep_list;
         let template_schema =
             weaver_forge::v2::registry::ForgeResolvedRegistry::try_from_resolved_schema(
                 resolved_schema.clone(),

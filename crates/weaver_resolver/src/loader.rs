@@ -13,6 +13,7 @@ use walkdir::DirEntry;
 use weaver_common::result::WResult;
 use weaver_resolved_schema::v2::ResolvedTelemetrySchema as V2Schema;
 use weaver_resolved_schema::ResolvedTelemetrySchema as V1Schema;
+use weaver_semconv::manifest::Dependency;
 use weaver_semconv::registry_repo::{RegistryRepo, LEGACY_REGISTRY_MANIFEST, REGISTRY_MANIFEST};
 use weaver_semconv::{group::ImportsWithProvenance, semconv::SemConvSpecWithProvenance};
 
@@ -214,28 +215,16 @@ fn load_semconv_repository_recursive(
             let mut loaded_dependencies = vec![];
             let mut non_fatal_errors: Vec<Error> = vec![];
             for d in manifest.dependencies().iter() {
-                let mut semconv_nfes: Vec<weaver_semconv::Error> = vec![];
-                match RegistryRepo::try_new_dependency(d, &mut semconv_nfes) {
-                    Ok(d_repo) => {
-                        non_fatal_errors
-                            .extend(semconv_nfes.into_iter().map(Error::FailToResolveDefinition));
-                        // so we need to make sure the dependency chain only include direct dependencies of each other.
-                        match load_semconv_repository_recursive(
-                            d_repo,
-                            follow_symlinks,
-                            max_dependency_depth - 1,
-                            visited_registries,
-                            dependency_chain,
-                        ) {
-                            WResult::Ok(d) => loaded_dependencies.push(d),
-                            WResult::OkWithNFEs(d, nfes) => {
-                                loaded_dependencies.push(d);
-                                non_fatal_errors.extend(nfes);
-                            }
-                            WResult::FatalErr(err) => return WResult::FatalErr(err),
-                        }
-                    }
-                    Err(err) => return WResult::FatalErr(err.into()),
+                if let Some(fatal) = load_and_flatten_dep(
+                    d,
+                    follow_symlinks,
+                    max_dependency_depth - 1,
+                    visited_registries,
+                    dependency_chain,
+                    &mut loaded_dependencies,
+                    &mut non_fatal_errors,
+                ) {
+                    return WResult::FatalErr(fatal);
                 }
             }
             // Now load the raw repository.
@@ -250,6 +239,62 @@ fn load_semconv_repository_recursive(
     }
 }
 
+/// Loads a single dependency and flattens any transitive resolved V2 dependencies into `result`.
+///
+/// For resolved V2 schemas the `dependencies` field of the schema already contains the full
+/// flat list of transitive deps. Each entry is loaded directly from its embedded path,
+/// so no manifest peeking or recursion is needed.
+fn load_and_flatten_dep(
+    dep: &Dependency,
+    follow_symlinks: bool,
+    max_dependency_depth: u32,
+    visited_registries: &mut HashSet<String>,
+    dependency_chain: &mut Vec<String>,
+    result: &mut Vec<LoadedSemconvRegistry>,
+    non_fatal_errors: &mut Vec<Error>,
+) -> Option<Error> {
+    let mut semconv_nfes: Vec<weaver_semconv::Error> = vec![];
+    let d_repo = match RegistryRepo::try_new_dependency(dep, &mut semconv_nfes) {
+        Ok(r) => r,
+        Err(e) => return Some(e.into()),
+    };
+    non_fatal_errors.extend(semconv_nfes.into_iter().map(Error::FailToResolveDefinition));
+
+    match load_semconv_repository_recursive(
+        d_repo,
+        follow_symlinks,
+        max_dependency_depth,
+        visited_registries,
+        dependency_chain,
+    ) {
+        WResult::Ok(LoadedSemconvRegistry::ResolvedV2(schema)) => {
+            // The schema's `dependencies` field is the pre-computed flat transitive list.
+            // Load each entry directly from its embedded path — no manifest, no recursion.
+            let transitive = schema.dependencies.clone();
+            result.push(LoadedSemconvRegistry::ResolvedV2(schema));
+            for td in &transitive {
+                if let Some(td_path) = &td.registry_path {
+                    match load_resolved_repository(td_path) {
+                        WResult::Ok(loaded) => result.push(loaded),
+                        WResult::OkWithNFEs(loaded, nfes) => {
+                            result.push(loaded);
+                            non_fatal_errors.extend(nfes);
+                        }
+                        WResult::FatalErr(err) => return Some(err),
+                    }
+                }
+            }
+        }
+        WResult::Ok(other) => result.push(other),
+        WResult::OkWithNFEs(other, nfes) => {
+            result.push(other);
+            non_fatal_errors.extend(nfes);
+        }
+        WResult::FatalErr(err) => return Some(err),
+    }
+    None
+}
+
 /// Loads a resolved repository.
 fn load_resolved_repository(path: &VirtualDirectoryPath) -> WResult<LoadedSemconvRegistry, Error> {
     // TODO - should we handle V1 and V2?
@@ -257,6 +302,13 @@ fn load_resolved_repository(path: &VirtualDirectoryPath) -> WResult<LoadedSemcon
         Ok(resolved) => WResult::Ok(LoadedSemconvRegistry::ResolvedV2(resolved)),
         Err(err) => WResult::FatalErr(err),
     }
+}
+
+/// Public-crate wrapper so `lib.rs` can expose schema loading without leaking `from_vdir`.
+pub(crate) fn load_from_path<T: serde::de::DeserializeOwned>(
+    f: &VirtualDirectoryPath,
+) -> Result<T, Error> {
+    from_vdir(f)
 }
 
 /// Reads a serialized object with serde from the given virtual directory path.

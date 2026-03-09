@@ -25,6 +25,16 @@ mod registry;
 pub use crate::error::Error;
 pub use crate::loader::LoadedSemconvRegistry;
 
+/// Loads a resolved V2 schema from the given path.
+///
+/// Used by the packaging command to read transitive dep schemas when building
+/// the flat dependency list to embed in the output.
+pub fn load_resolved_v2_schema(
+    path: &weaver_common::vdir::VirtualDirectoryPath,
+) -> Result<weaver_resolved_schema::v2::ResolvedTelemetrySchema, Error> {
+    loader::load_from_path(path)
+}
+
 /// A resolver that can be used to load and resolve telemetry schemas.
 /// All references to semantic conventions will be resolved.
 pub struct SchemaResolver {}
