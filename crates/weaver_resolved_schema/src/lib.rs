@@ -81,7 +81,7 @@ pub struct ResolvedTelemetrySchema {
     pub versions: Option<Versions>,
     /// The manifest of the registry.
     pub registry_manifest: Option<RegistryManifest>,
-    /// Canonical attribute definitions available in this registry (including those
+    /// Attribute definitions available in this registry (including those
     /// from dependencies). Used for cross-registry attribute lookup.
     /// Not serialized — populated only for freshly resolved schemas.
     #[schemars(skip)]
