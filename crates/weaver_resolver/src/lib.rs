@@ -470,4 +470,47 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_v2_three_layer_dependency_resolution() -> Result<(), weaver_semconv::Error> {
+        // Test that briefs are correctly inherited through two levels of V2 dependencies:
+        // app_registry -> consumer_published -> published (server definitions)
+        let registry_path = VirtualDirectoryPath::LocalFolder {
+            path: "data/registry-test-v2-dep/app_registry".to_owned(),
+        };
+        let registry_repo = RegistryRepo::try_new(None, &registry_path, &mut vec![])?;
+        let mut diag_msgs = DiagnosticMessages::empty();
+        let loaded = SchemaResolver::load_semconv_repository(registry_repo, false)
+            .capture_non_fatal_errors(&mut diag_msgs)
+            .expect("Failed to load app registry");
+
+        let resolved = SchemaResolver::resolve(loaded, false);
+        match resolved {
+            WResult::Ok(resolved_registry) | WResult::OkWithNFEs(resolved_registry, _) => {
+                let metrics = resolved_registry.groups(GroupType::Metric);
+                let metric = metrics
+                    .get("metric.app.request.count")
+                    .expect("metric.app.request.count not found");
+                assert_eq!(metric.attributes.len(), 2);
+                for attr_ref in &metric.attributes {
+                    let attr = resolved_registry
+                        .catalog
+                        .attribute(attr_ref)
+                        .expect("Failed to resolve attribute ref");
+                    match attr.name.as_str() {
+                        // Briefs must come from the original definitions in published/,
+                        // two V2 dependency hops away.
+                        "server.address" => assert_eq!(attr.brief, "Server address."),
+                        "server.port" => assert_eq!(attr.brief, "Server port."),
+                        _ => panic!("Unexpected attribute: {}", attr.name),
+                    }
+                }
+            }
+            WResult::FatalErr(fatal) => {
+                panic!("Failed to resolve app registry: {fatal}");
+            }
+        }
+
+        Ok(())
+    }
 }
