@@ -400,4 +400,75 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_v2_dependency_resolution() -> Result<(), weaver_semconv::Error> {
+        // Test that a consumer registry can resolve attribute refs from a pre-resolved V2 dependency.
+        let registry_path = VirtualDirectoryPath::LocalFolder {
+            path: "data/registry-test-v2-dep/consumer_registry".to_owned(),
+        };
+        let registry_repo = RegistryRepo::try_new(None, &registry_path, &mut vec![])?;
+        let mut diag_msgs = DiagnosticMessages::empty();
+        let loaded = SchemaResolver::load_semconv_repository(registry_repo, false)
+            .capture_non_fatal_errors(&mut diag_msgs)
+            .expect("Failed to load consumer registry");
+
+        let resolved = SchemaResolver::resolve(loaded, false);
+        match resolved {
+            WResult::Ok(resolved_registry) | WResult::OkWithNFEs(resolved_registry, _) => {
+                let metrics = resolved_registry.groups(GroupType::Metric);
+                let metric = metrics
+                    .get("metric.consumer.request.count")
+                    .expect("metric.consumer.request.count not found");
+
+                assert_eq!(metric.attributes.len(), 2);
+
+                let mut attr_names = HashSet::new();
+                for attr_ref in &metric.attributes {
+                    let attr = resolved_registry
+                        .catalog
+                        .attribute(attr_ref)
+                        .expect("Failed to resolve attribute ref");
+                    _ = attr_names.insert(attr.name.clone());
+                    match attr.name.as_str() {
+                        "server.address" => {
+                            // requirement_level overridden to required in consumer
+                            assert_eq!(
+                                attr.requirement_level,
+                                RequirementLevel::Basic(BasicRequirementLevelSpec::Required)
+                            );
+                            // The brief must come from the original attribute definition
+                            // in the V2 dependency, not from a refined variant used in
+                            // the dependency's own metric. The catalog contains both:
+                            //   index 1: brief="Different brief" (refined in source metric)
+                            //   index 2: brief="Server address." (original definition)
+                            // Currently broken: find_map returns the first catalog match,
+                            // which is the refined entry, not the original definition.
+                            assert_eq!(attr.brief, "Server address.");
+                            assert_eq!(attr.r#type, weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
+                                weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::String
+                            ));
+                        }
+                        "server.port" => {
+                            // brief overridden locally in consumer
+                            assert_eq!(attr.brief, "The server port used by the consumer.");
+                            // type still comes from the V2 dependency
+                            assert_eq!(attr.r#type, weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
+                                weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::Int
+                            ));
+                        }
+                        _ => panic!("Unexpected attribute: {}", attr.name),
+                    }
+                }
+
+                assert!(attr_names.contains("server.address"));
+                assert!(attr_names.contains("server.port"));
+            }
+            WResult::FatalErr(fatal) => {
+                panic!("Failed to resolve consumer registry: {fatal}");
+            }
+        }
+
+        Ok(())
+    }
 }

@@ -1,0 +1,3 @@
+name: server
+description: Server semantic conventions.
+schema_url: https://server.example.com/schemas/1.0.0

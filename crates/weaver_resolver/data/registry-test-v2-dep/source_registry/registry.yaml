@@ -1,0 +1,24 @@
+file_format: definition/2
+attributes:
+  - key: server.address
+    type: string
+    brief: Server address.
+    stability: stable
+    examples: ["example.com"]
+  - key: server.port
+    type: int
+    brief: Server port.
+    stability: stable
+    examples: [80, 443]
+metrics:
+  - name: server.request.duration
+    brief: Duration of server requests.
+    instrument: histogram
+    unit: s
+    stability: stable
+    attributes:
+      - ref: server.address
+        brief: "Different brief"
+        note: "Different note"
+        requirement_level: required
+      - ref: server.port
