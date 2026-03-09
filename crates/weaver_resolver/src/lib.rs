@@ -437,25 +437,24 @@ mod tests {
                                 attr.requirement_level,
                                 RequirementLevel::Basic(BasicRequirementLevelSpec::Required)
                             );
-                            // The brief must come from the original attribute definition
-                            // in the V2 dependency, not from a refined variant used in
-                            // the dependency's own metric. The catalog contains both:
-                            //   index 1: brief="Different brief" (refined in source metric)
-                            //   index 2: brief="Server address." (original definition)
-                            // Currently broken: find_map returns the first catalog match,
-                            // which is the refined entry, not the original definition.
                             assert_eq!(attr.brief, "Server address.");
-                            assert_eq!(attr.r#type, weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
-                                weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::String
-                            ));
+                            assert_eq!(
+                                attr.r#type,
+                                weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
+                                    weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::String
+                                )
+                            );
                         }
                         "server.port" => {
                             // brief overridden locally in consumer
                             assert_eq!(attr.brief, "The server port used by the consumer.");
                             // type still comes from the V2 dependency
-                            assert_eq!(attr.r#type, weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
-                                weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::Int
-                            ));
+                            assert_eq!(
+                                attr.r#type,
+                                weaver_semconv::attribute::AttributeType::PrimitiveOrArray(
+                                    weaver_semconv::attribute::PrimitiveOrArrayTypeSpec::Int
+                                )
+                            );
                         }
                         _ => panic!("Unexpected attribute: {}", attr.name),
                     }
