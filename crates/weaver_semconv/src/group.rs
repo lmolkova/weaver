@@ -629,7 +629,16 @@ impl Default for GroupType {
 
 impl Display for GroupType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
+        match self {
+            GroupType::AttributeGroup => write!(f, "attribute_group"),
+            GroupType::Span => write!(f, "span"),
+            GroupType::Event => write!(f, "event"),
+            GroupType::Metric => write!(f, "metric"),
+            GroupType::MetricGroup => write!(f, "metric_group"),
+            GroupType::Entity => write!(f, "entity"),
+            GroupType::Scope => write!(f, "scope"),
+            GroupType::Undefined => write!(f, "undefined"),
+        }
     }
 }
 

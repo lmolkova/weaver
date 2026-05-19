@@ -542,7 +542,9 @@ mod tests {
         Ok(())
     }
 
-    fn resolve_at(path: &str) -> WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error> {
+    fn resolve_at(
+        path: &str,
+    ) -> WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error> {
         let registry_path = VirtualDirectoryPath::LocalFolder {
             path: path.to_owned(),
         };

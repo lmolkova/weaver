@@ -187,7 +187,11 @@ impl AttributeCatalog {
                 }
                 if let Some(root_attr) = root_attr {
                     if !group_excluded
-                        && root_attr.attribute.annotations.as_ref().is_some_and(is_excluded)
+                        && root_attr
+                            .attribute
+                            .annotations
+                            .as_ref()
+                            .is_some_and(is_excluded)
                     {
                         return Err(Error::ExcludedFromDependencyResolution {
                             id: r#ref.clone(),

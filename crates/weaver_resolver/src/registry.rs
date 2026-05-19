@@ -4,6 +4,7 @@
 
 use crate::attribute::AttributeCatalog;
 use crate::dependency::{ImportableDependency, ResolvedDependency};
+use crate::dependency_resolution::is_excluded;
 use crate::Error;
 use crate::Error::{DuplicateGroupId, DuplicateGroupName, DuplicateMetricName};
 use itertools::Itertools;
@@ -519,22 +520,13 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                 if let Some(parent_summary) =
                     lookup_group_with_dependencies(dependencies, &group_index, extends)
                 {
-                    if !unresolved_group
-                        .group
-                        .annotations
-                        .as_ref()
-                        .is_some_and(crate::dependency_resolution::is_excluded)
-                        && parent_summary
-                            .annotations
-                            .as_ref()
-                            .is_some_and(crate::dependency_resolution::is_excluded)
-                    {
-                        errors.push(Error::ExcludedFromDependencyResolution {
-                            id: extends.clone(),
-                            r#type: parent_summary.r#type.to_string(),
-                            used_in: unresolved_group.group.id.clone(),
-                            provenance: unresolved_group.provenance.clone().map(Box::new),
-                        });
+                    if let Some(err) = excluded_parent_error(
+                        unresolved_group,
+                        extends,
+                        &parent_summary.r#type,
+                        parent_summary.annotations.as_ref(),
+                    ) {
+                        errors.push(err);
                         continue;
                     }
                     unresolved_group.attributes = resolve_inheritance_attrs_unified(
@@ -628,22 +620,13 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
 
                 for include_group in unresolved_group.include_groups.iter() {
                     if let Some(summary) = group_index.get(include_group) {
-                        if !unresolved_group
-                            .group
-                            .annotations
-                            .as_ref()
-                            .is_some_and(crate::dependency_resolution::is_excluded)
-                            && summary
-                                .annotations
-                                .as_ref()
-                                .is_some_and(crate::dependency_resolution::is_excluded)
-                        {
-                            errors.push(Error::ExcludedFromDependencyResolution {
-                                id: include_group.clone(),
-                                r#type: summary.r#type.to_string(),
-                                used_in: unresolved_group.group.id.clone(),
-                                provenance: unresolved_group.provenance.clone().map(Box::new),
-                            });
+                        if let Some(err) = excluded_parent_error(
+                            unresolved_group,
+                            include_group,
+                            &summary.r#type,
+                            summary.annotations.as_ref(),
+                        ) {
+                            errors.push(err);
                             all_resolved = false;
                             continue;
                         }
@@ -924,6 +907,25 @@ fn lookup_group_with_dependencies(
     dependencies.iter().find_map(|d| d.lookup_group_summary(id))
 }
 
+/// Returns an `ExcludedFromDependencyResolution` error if a non-excluded `user`
+/// references an excluded target, otherwise `None`. References from an excluded
+/// user to an excluded target are allowed.
+fn excluded_parent_error(
+    user: &UnresolvedGroup,
+    target_id: &str,
+    target_type: &GroupType,
+    target_annotations: Option<&BTreeMap<String, weaver_semconv::YamlValue>>,
+) -> Option<Error> {
+    let user_excluded = user.group.annotations.as_ref().is_some_and(is_excluded);
+    let target_excluded = target_annotations.is_some_and(is_excluded);
+    (!user_excluded && target_excluded).then(|| Error::ExcludedFromDependencyResolution {
+        id: target_id.to_owned(),
+        r#type: target_type.to_string(),
+        used_in: user.group.id.clone(),
+        provenance: user.provenance.clone().map(Box::new),
+    })
+}
+
 /// This will sort the clean and sort the attribute catalog and registry.
 ///
 /// This helps with idempotent/stable resolved schemas.
@@ -1039,7 +1041,7 @@ mod tests {
             // "registry-test-7-spans",
             // "registry-test-8-http",
             // "registry-test-v2-2-multifile",
-            "registry-test-v2-dep", // tested separately in lib.rs
+            "registry-test-v2-dep",        // tested separately in lib.rs
             "registry-test-dep-exclusion", // multi-registry; tested separately in lib.rs
         ];
         // Iterate over all directories in the data directory and

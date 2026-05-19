@@ -159,48 +159,34 @@ impl ImportableDependency for V1Schema {
                     GroupType::Undefined => false,
                 }
         };
-        let matched: Vec<Group> = self
-            .registry
-            .groups
-            .iter()
-            .filter(|g| filter(g))
-            .cloned()
-            .collect();
-
-        // Check if any of the matched groups are excluded from dependency resolution, 
-        // and if so return an error with all of them.
-        let exclusion_errors: Vec<Error> = matched
-            .iter()
-            .filter(|g| g.annotations.as_ref().is_some_and(is_excluded))
-            .map(|g| Error::ExcludedFromDependencyResolution {
-                id: g.id.clone(),
-                r#type: g.r#type.to_string(),
-                used_in: "imports".to_owned(),
-                provenance: imports_provenance(imports),
-            })
-            .collect();
+        let mut exclusion_errors: Vec<Error> = vec![];
+        let mut result: Vec<Group> = vec![];
+        for g in self.registry.groups.iter().filter(|g| filter(g)) {
+            if g.annotations.as_ref().is_some_and(is_excluded) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: g.id.clone(),
+                    r#type: g.r#type.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imports_provenance(imports),
+                });
+                continue;
+            }
+            let mut g = g.clone();
+            let mut attributes = vec![];
+            for a in g
+                .attributes
+                .iter()
+                .filter_map(|ar| self.catalog().attribute(ar))
+            {
+                attributes.push(attribute_catalog.attribute_ref(a.clone()));
+            }
+            g.attributes = attributes;
+            result.push(g);
+        }
         if !exclusion_errors.is_empty() {
             return Err(Error::CompoundError(exclusion_errors));
         }
-
-        Ok(matched
-            .into_iter()
-            .map(|mut g| {
-                // We need to fix all the attribute references in this group to be
-                // against the passed in attribute catalog.
-                let mut attributes = vec![];
-                for a in g
-                    .attributes
-                    .iter()
-                    .filter_map(|ar| self.catalog().attribute(ar))
-                {
-                    let ar = attribute_catalog.attribute_ref(a.clone());
-                    attributes.push(ar);
-                }
-                g.attributes = attributes;
-                g
-            })
-            .collect())
+        Ok(result)
     }
 }
 
@@ -209,6 +195,22 @@ fn imports_provenance(
     imports: &[ImportsWithProvenance],
 ) -> Option<Box<weaver_semconv::provenance::Provenance>> {
     imports.first().map(|i| Box::new(i.provenance.clone()))
+}
+
+/// Returns an `ExcludedFromDependencyResolution` error if the imported item is
+/// marked excluded, otherwise `None`.
+fn excluded_import_error(
+    annotations: &std::collections::BTreeMap<String, weaver_semconv::YamlValue>,
+    id: &str,
+    r#type: GroupType,
+    provenance: &Option<Box<weaver_semconv::provenance::Provenance>>,
+) -> Option<Error> {
+    is_excluded(annotations).then(|| Error::ExcludedFromDependencyResolution {
+        id: id.to_owned(),
+        r#type: r#type.to_string(),
+        used_in: "imports".to_owned(),
+        provenance: provenance.clone(),
+    })
 }
 
 /// Converts a V2 attribute (with no requirement level) to a v1 attribute.
@@ -265,13 +267,10 @@ impl ImportableDependency for V2Schema {
             let metric_name: &str = &m.name;
             include_all || metrics_imports_matcher.is_match(metric_name)
         }) {
-            if is_excluded(&m.common.annotations) {
-                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
-                    id: m.id().to_owned(),
-                    r#type: GroupType::Metric.to_string(),
-                    used_in: "imports".to_owned(),
-                    provenance: imp_prov.clone(),
-                });
+            if let Some(err) =
+                excluded_import_error(&m.common.annotations, m.id(), GroupType::Metric, &imp_prov)
+            {
+                exclusion_errors.push(err);
                 continue;
             }
             let mut attributes = vec![];
@@ -326,13 +325,10 @@ impl ImportableDependency for V2Schema {
             let event_name: &str = &e.name;
             include_all || events_imports_matcher.is_match(event_name)
         }) {
-            if is_excluded(&e.common.annotations) {
-                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
-                    id: e.id().to_owned(),
-                    r#type: GroupType::Event.to_string(),
-                    used_in: "imports".to_owned(),
-                    provenance: imp_prov.clone(),
-                });
+            if let Some(err) =
+                excluded_import_error(&e.common.annotations, e.id(), GroupType::Event, &imp_prov)
+            {
+                exclusion_errors.push(err);
                 continue;
             }
             let mut attributes = vec![];
@@ -387,13 +383,10 @@ impl ImportableDependency for V2Schema {
             let entity_type: &str = &e.r#type;
             include_all || entities_imports_matcher.is_match(entity_type)
         }) {
-            if is_excluded(&e.common.annotations) {
-                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
-                    id: e.id().to_owned(),
-                    r#type: GroupType::Entity.to_string(),
-                    used_in: "imports".to_owned(),
-                    provenance: imp_prov.clone(),
-                });
+            if let Some(err) =
+                excluded_import_error(&e.common.annotations, e.id(), GroupType::Entity, &imp_prov)
+            {
+                exclusion_errors.push(err);
                 continue;
             }
             let mut attributes = vec![];
@@ -472,13 +465,10 @@ impl ImportableDependency for V2Schema {
             let span_name: &str = &s.r#type;
             include_all || spans_imports_matcher.is_match(span_name)
         }) {
-            if is_excluded(&s.common.annotations) {
-                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
-                    id: s.id().to_owned(),
-                    r#type: GroupType::Span.to_string(),
-                    used_in: "imports".to_owned(),
-                    provenance: imp_prov.clone(),
-                });
+            if let Some(err) =
+                excluded_import_error(&s.common.annotations, s.id(), GroupType::Span, &imp_prov)
+            {
+                exclusion_errors.push(err);
                 continue;
             }
             let mut attributes = vec![];
@@ -536,13 +526,13 @@ impl ImportableDependency for V2Schema {
             let ag_id: &str = &ag.id;
             include_all || attribute_groups_imports_matcher.is_match(ag_id)
         }) {
-            if is_excluded(&ag.common.annotations) {
-                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
-                    id: ag.id().to_owned(),
-                    r#type: GroupType::AttributeGroup.to_string(),
-                    used_in: "imports".to_owned(),
-                    provenance: imp_prov.clone(),
-                });
+            if let Some(err) = excluded_import_error(
+                &ag.common.annotations,
+                ag.id(),
+                GroupType::AttributeGroup,
+                &imp_prov,
+            ) {
+                exclusion_errors.push(err);
                 continue;
             }
             let mut attributes = vec![];
