@@ -1,0 +1,9 @@
+groups:
+  - id: consumer.requests
+    type: metric
+    metric_name: consumer.requests
+    instrument: counter
+    unit: "1"
+    stability: stable
+    brief: Consumer request metric that extends an excluded parent.
+    extends: parent.excluded.metric

@@ -627,6 +627,12 @@ impl Default for GroupType {
     }
 }
 
+impl Display for GroupType {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
+}
+
 /// The span kind.
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Hash, JsonSchema)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

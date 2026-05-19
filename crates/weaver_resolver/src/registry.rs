@@ -408,25 +408,34 @@ fn resolve_attribute_references(
             // in the group for the next iteration.
             let mut still_unresolved = vec![];
             for attr in unresolved_group.attributes.clone() {
-                let attr_ref = attr_catalog.resolve(
+                match attr_catalog.resolve(
                     &unresolved_group.group.id,
                     &unresolved_group.group.prefix,
+                    &unresolved_group.group.annotations,
+                    unresolved_group.provenance.as_ref(),
                     &attr.spec,
                     unresolved_group.group.lineage.as_mut(),
                     &ureg.dependencies,
-                )?;
-                if let Some(attr_ref) = attr_ref {
-                    resolved_attr.push(attr_ref);
-                    resolved_attr_count += 1;
-                } else {
-                    if let AttributeSpec::Ref { r#ref, .. } = &attr.spec {
-                        errors.push(Error::UnresolvedAttributeRef {
-                            group_id: unresolved_group.group.id.clone(),
-                            attribute_ref: r#ref.clone(),
-                            provenance: unresolved_group.provenance.clone().map(Box::new),
-                        });
+                ) {
+                    Ok(Some(attr_ref)) => {
+                        resolved_attr.push(attr_ref);
+                        resolved_attr_count += 1;
                     }
-                    still_unresolved.push(attr);
+                    Ok(None) => {
+                        if let AttributeSpec::Ref { r#ref, .. } = &attr.spec {
+                            errors.push(Error::UnresolvedAttributeRef {
+                                group_id: unresolved_group.group.id.clone(),
+                                attribute_ref: r#ref.clone(),
+                                provenance: unresolved_group.provenance.clone().map(Box::new),
+                            });
+                        }
+                        still_unresolved.push(attr);
+                    }
+                    Err(e @ Error::ExcludedFromDependencyResolution { .. }) => {
+                        errors.push(e);
+                        still_unresolved.push(attr);
+                    }
+                    Err(e) => return Err(e),
                 }
             }
             unresolved_group.attributes = still_unresolved;
@@ -510,6 +519,24 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                 if let Some(parent_summary) =
                     lookup_group_with_dependencies(dependencies, &group_index, extends)
                 {
+                    if !unresolved_group
+                        .group
+                        .annotations
+                        .as_ref()
+                        .is_some_and(crate::dependency_resolution::is_excluded)
+                        && parent_summary
+                            .annotations
+                            .as_ref()
+                            .is_some_and(crate::dependency_resolution::is_excluded)
+                    {
+                        errors.push(Error::ExcludedFromDependencyResolution {
+                            id: extends.clone(),
+                            r#type: parent_summary.r#type.to_string(),
+                            used_in: unresolved_group.group.id.clone(),
+                            provenance: unresolved_group.provenance.clone().map(Box::new),
+                        });
+                        continue;
+                    }
                     unresolved_group.attributes = resolve_inheritance_attrs_unified(
                         &unresolved_group.group.id,
                         &unresolved_group.attributes,
@@ -601,6 +628,25 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
 
                 for include_group in unresolved_group.include_groups.iter() {
                     if let Some(summary) = group_index.get(include_group) {
+                        if !unresolved_group
+                            .group
+                            .annotations
+                            .as_ref()
+                            .is_some_and(crate::dependency_resolution::is_excluded)
+                            && summary
+                                .annotations
+                                .as_ref()
+                                .is_some_and(crate::dependency_resolution::is_excluded)
+                        {
+                            errors.push(Error::ExcludedFromDependencyResolution {
+                                id: include_group.clone(),
+                                r#type: summary.r#type.to_string(),
+                                used_in: unresolved_group.group.id.clone(),
+                                provenance: unresolved_group.provenance.clone().map(Box::new),
+                            });
+                            all_resolved = false;
+                            continue;
+                        }
                         // check if any attribute in the attrs is already in the all_attrs
                         // and fail - this is a diamond include problem and is not allowed.
                         // Otherwise add all of them to all_attrs
@@ -994,6 +1040,7 @@ mod tests {
             // "registry-test-8-http",
             // "registry-test-v2-2-multifile",
             "registry-test-v2-dep", // tested separately in lib.rs
+            "registry-test-dep-exclusion", // multi-registry; tested separately in lib.rs
         ];
         // Iterate over all directories in the data directory and
         // starting with registry-test-*

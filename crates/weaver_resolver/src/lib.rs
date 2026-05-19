@@ -15,6 +15,7 @@ use weaver_semconv::semconv::SemConvSpecWithProvenance;
 
 mod attribute;
 mod dependency;
+mod dependency_resolution;
 mod error;
 mod loader;
 pub(crate) mod merge;
@@ -539,5 +540,248 @@ mod tests {
         }
 
         Ok(())
+    }
+
+    fn resolve_at(path: &str) -> WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error> {
+        let registry_path = VirtualDirectoryPath::LocalFolder {
+            path: path.to_owned(),
+        };
+        let registry_repo = RegistryRepo::try_new(None, &registry_path, &mut vec![])
+            .expect("Failed to create registry repo");
+        let mut diag_msgs = DiagnosticMessages::empty();
+        let loaded = SchemaResolver::load_semconv_repository(registry_repo, false)
+            .capture_non_fatal_errors(&mut diag_msgs)
+            .expect("Failed to load registry");
+        SchemaResolver::resolve(loaded, false)
+    }
+
+    fn assert_exclusion_error(
+        result: WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error>,
+        expected_id: &str,
+        expected_used_in: &str,
+    ) {
+        let err = match result {
+            WResult::Ok(_) | WResult::OkWithNFEs(_, _) => {
+                panic!("Expected an exclusion error, got Ok");
+            }
+            WResult::FatalErr(e) => e,
+        };
+        let mut errors = vec![];
+        collect_errors(&err, &mut errors);
+        let found = errors.iter().any(|e| {
+            matches!(
+                e,
+                crate::Error::ExcludedFromDependencyResolution { id, used_in, .. }
+                    if id == expected_id && used_in == expected_used_in
+            )
+        });
+        assert!(
+            found,
+            "expected ExcludedFromDependencyResolution(id={expected_id}, used_in={expected_used_in}); got {errors:#?}"
+        );
+    }
+
+    fn collect_errors<'a>(err: &'a crate::Error, out: &mut Vec<&'a crate::Error>) {
+        match err {
+            crate::Error::CompoundError(inner) => {
+                for e in inner {
+                    collect_errors(e, out);
+                }
+            }
+            other => out.push(other),
+        }
+    }
+
+    #[test]
+    fn test_dep_exclusion_v2_fails_ref() {
+        // Uses the *_cargo sibling fixture so the dep path is crate-relative
+        // (matching cargo's CWD). The plain `consumer_v2_fails_ref` fixture is
+        // workspace-relative for inspection via `weaver registry resolve`.
+        assert_exclusion_error(
+            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_ref_cargo"),
+            "parent.excluded",
+            "metric.consumer.requests",
+        );
+    }
+
+    #[test]
+    fn test_dep_exclusion_v2_fails_extends() {
+        assert_exclusion_error(
+            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_extends"),
+            "parent.excluded.metric",
+            "consumer.requests",
+        );
+    }
+
+    #[test]
+    fn test_dep_exclusion_v2_fails_imports() {
+        assert_exclusion_error(
+            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_imports"),
+            "parent.excluded.metric",
+            "imports",
+        );
+    }
+
+    #[test]
+    fn test_dep_exclusion_v2_succeeds() {
+        let result = resolve_at("data/registry-test-dep-exclusion/consumer_v2_succeeds");
+        match result {
+            WResult::Ok(resolved) | WResult::OkWithNFEs(resolved, _) => {
+                let metrics = resolved.groups(GroupType::Metric);
+                let metric = metrics
+                    .get("metric.consumer.requests")
+                    .expect("metric.consumer.requests should be present");
+                assert_eq!(metric.attributes.len(), 1);
+            }
+            WResult::FatalErr(e) => panic!("expected success; got {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_dep_exclusion_v2_excluded_user() {
+        // When the consumer's own group is also marked excluded, references
+        // to excluded parent items are allowed.
+        let result = resolve_at("data/registry-test-dep-exclusion/consumer_v2_excluded_user");
+        match result {
+            WResult::Ok(_) | WResult::OkWithNFEs(_, _) => {}
+            WResult::FatalErr(e) => panic!("expected success; got {e:?}"),
+        }
+    }
+
+    fn create_registry_from_string(
+        registry_spec: &str,
+    ) -> WResult<weaver_resolved_schema::registry::Registry, crate::Error> {
+        let loaded = crate::LoadedSemconvRegistry::create_from_string(registry_spec)
+            .expect("Failed to load semconv spec");
+        SchemaResolver::resolve(loaded, false).map(|schema| schema.registry)
+    }
+
+    #[test]
+    fn test_within_registry_leak_v1_ref() {
+        // Same registry: an excluded attribute is defined inside an excluded
+        // host group (so its definition is fine), but a non-excluded span
+        // refs it. The ref is the leak path.
+        let result = create_registry_from_string(
+            "
+groups:
+    - id: attrs.private
+      type: attribute_group
+      brief: Private
+      annotations:
+        dependency_resolution:
+          exclude: true
+      attributes:
+        - id: secret.value
+          type: string
+          stability: stable
+          brief: Hidden detail.
+          examples: ['hidden']
+          annotations:
+            dependency_resolution:
+              exclude: true
+    - id: span.public
+      type: span
+      span_kind: internal
+      stability: stable
+      brief: A public span that leaks an excluded attribute.
+      attributes:
+        - ref: secret.value
+          requirement_level: required",
+        );
+
+        match result.into_result_failing_non_fatal() {
+            Ok(_) => panic!("expected an exclusion error"),
+            Err(crate::Error::CompoundError(errors)) => {
+                assert!(
+                    errors.iter().any(|e| matches!(
+                        e,
+                        crate::Error::ExcludedFromDependencyResolution { id, used_in, .. }
+                            if id == "secret.value" && used_in == "span.public"
+                    )),
+                    "expected exclusion error on span.public, got {errors:#?}"
+                );
+            }
+            Err(e) => panic!("expected CompoundError, got {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_within_registry_leak_inline_id() {
+        // A non-excluded group defines an attribute with `id:` that is marked
+        // excluded. Defining it inline means the group inlines that attribute
+        // into its resolved form — a leak.
+        let result = create_registry_from_string(
+            "
+groups:
+    - id: span.public
+      type: span
+      span_kind: internal
+      stability: stable
+      brief: Public span with an inlined excluded attribute.
+      attributes:
+        - id: secret.value
+          type: string
+          stability: stable
+          brief: Hidden detail.
+          examples: ['hidden']
+          annotations:
+            dependency_resolution:
+              exclude: true",
+        );
+
+        match result.into_result_failing_non_fatal() {
+            Ok(_) => panic!("expected an exclusion error"),
+            Err(crate::Error::CompoundError(errors)) => {
+                assert!(
+                    errors.iter().any(|e| matches!(
+                        e,
+                        crate::Error::ExcludedFromDependencyResolution { id, used_in, .. }
+                            if id == "secret.value" && used_in == "span.public"
+                    )),
+                    "expected exclusion error from inline-id, got {errors:#?}"
+                );
+            }
+            Err(e) => panic!("expected CompoundError, got {e:?}"),
+        }
+    }
+
+    #[test]
+    fn test_within_registry_both_excluded() {
+        // When the using group is also excluded, leak validation is skipped.
+        let result = create_registry_from_string(
+            "
+groups:
+    - id: attrs.private
+      type: attribute_group
+      brief: Private
+      annotations:
+        dependency_resolution:
+          exclude: true
+      attributes:
+        - id: secret.value
+          type: string
+          stability: stable
+          brief: Hidden detail.
+          examples: ['hidden']
+          annotations:
+            dependency_resolution:
+              exclude: true
+    - id: span.also.excluded
+      type: span
+      span_kind: internal
+      stability: stable
+      brief: Also excluded.
+      annotations:
+        dependency_resolution:
+          exclude: true
+      attributes:
+        - ref: secret.value
+          requirement_level: required",
+        );
+
+        match result.into_result_failing_non_fatal() {
+            Ok(_) => {}
+            Err(e) => panic!("expected success when both are excluded; got {e:?}"),
+        }
     }
 }

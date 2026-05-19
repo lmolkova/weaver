@@ -2,7 +2,7 @@
 
 //! Attribute resolution.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use serde::Deserialize;
 
@@ -13,9 +13,12 @@ use weaver_resolved_schema::lineage::{AttributeLineage, GroupLineage};
 use weaver_resolved_schema::v2::ResolvedTelemetrySchema as V2Schema;
 use weaver_resolved_schema::ResolvedTelemetrySchema as V1Schema;
 use weaver_semconv::attribute::AttributeSpec;
+use weaver_semconv::provenance::Provenance;
 use weaver_semconv::schema_url::SchemaUrl;
+use weaver_semconv::YamlValue;
 
 use crate::dependency::ResolvedDependency;
+use crate::dependency_resolution::is_excluded;
 use crate::Error;
 
 /// A catalog of deduplicated resolved attributes with their corresponding reference.
@@ -151,10 +154,13 @@ impl AttributeCatalog {
         &mut self,
         group_id: &str,
         group_prefix: &str,
+        group_annotations: &Option<BTreeMap<String, YamlValue>>,
+        group_provenance: Option<&Provenance>,
         attr: &AttributeSpec,
         lineage: Option<&mut GroupLineage>,
         dependencies: &Vec<ResolvedDependency>,
     ) -> Result<Option<AttributeRef>, Error> {
+        let group_excluded = group_annotations.as_ref().is_some_and(is_excluded);
         match attr {
             AttributeSpec::Ref {
                 r#ref,
@@ -180,6 +186,16 @@ impl AttributeCatalog {
                     }
                 }
                 if let Some(root_attr) = root_attr {
+                    if !group_excluded
+                        && root_attr.attribute.annotations.as_ref().is_some_and(is_excluded)
+                    {
+                        return Err(Error::ExcludedFromDependencyResolution {
+                            id: r#ref.clone(),
+                            r#type: "Attribute".to_owned(),
+                            used_in: group_id.to_owned(),
+                            provenance: group_provenance.cloned().map(Box::new),
+                        });
+                    }
                     let mut attr_lineage = match &root_attr.source {
                         AttributeSource::Local { group_id } => AttributeLineage::new(group_id),
                         AttributeSource::Dependency { schema_url } => {
@@ -268,6 +284,14 @@ impl AttributeCatalog {
                 annotations,
                 role,
             } => {
+                if !group_excluded && annotations.as_ref().is_some_and(is_excluded) {
+                    return Err(Error::ExcludedFromDependencyResolution {
+                        id: id.clone(),
+                        r#type: "Attribute".to_owned(),
+                        used_in: group_id.to_owned(),
+                        provenance: group_provenance.cloned().map(Box::new),
+                    });
+                }
                 // Create a fully resolved attribute from an attribute spec (id),
                 // and check if it already exists in the catalog.
                 // If it does, return the reference to the existing attribute.

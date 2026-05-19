@@ -1,0 +1,10 @@
+# Cargo-test variant of consumer_v2_fails_ref: paths are relative to the
+# weaver_resolver crate directory (which is where `cargo test` sets CWD).
+# The neighboring `consumer_v2_fails_ref` uses workspace-relative paths
+# so it can be invoked with `weaver registry resolve` from the workspace
+# root to inspect diagnostics by eye.
+description: Consumer registry that references an excluded attribute from its dep.
+schema_url: https://consumer.example.com/schemas/1.0.0
+dependencies:
+  - schema_url: https://parent.example.com/schemas/1.0.0
+    registry_path: data/registry-test-dep-exclusion/published_v2

@@ -1,0 +1,10 @@
+file_format: definition/2
+metrics:
+  - name: consumer.requests
+    brief: Count of consumer requests.
+    instrument: counter
+    unit: "{request}"
+    stability: stable
+    attributes:
+      - ref: parent.excluded
+        requirement_level: required

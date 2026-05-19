@@ -17,6 +17,7 @@ use weaver_semconv::stability::Stability;
 
 use crate::{
     attribute::{AttributeCatalog, AttributeSource},
+    dependency_resolution::is_excluded,
     Error,
 };
 
@@ -158,12 +159,32 @@ impl ImportableDependency for V1Schema {
                     GroupType::Undefined => false,
                 }
         };
-        Ok(self
+        let matched: Vec<Group> = self
             .registry
             .groups
             .iter()
             .filter(|g| filter(g))
             .cloned()
+            .collect();
+
+        // Check if any of the matched groups are excluded from dependency resolution, 
+        // and if so return an error with all of them.
+        let exclusion_errors: Vec<Error> = matched
+            .iter()
+            .filter(|g| g.annotations.as_ref().is_some_and(is_excluded))
+            .map(|g| Error::ExcludedFromDependencyResolution {
+                id: g.id.clone(),
+                r#type: g.r#type.to_string(),
+                used_in: "imports".to_owned(),
+                provenance: imports_provenance(imports),
+            })
+            .collect();
+        if !exclusion_errors.is_empty() {
+            return Err(Error::CompoundError(exclusion_errors));
+        }
+
+        Ok(matched
+            .into_iter()
             .map(|mut g| {
                 // We need to fix all the attribute references in this group to be
                 // against the passed in attribute catalog.
@@ -181,6 +202,13 @@ impl ImportableDependency for V1Schema {
             })
             .collect())
     }
+}
+
+/// Returns the provenance of the first ImportsWithProvenance entry, if any.
+fn imports_provenance(
+    imports: &[ImportsWithProvenance],
+) -> Option<Box<weaver_semconv::provenance::Provenance>> {
+    imports.first().map(|i| Box::new(i.provenance.clone()))
 }
 
 /// Converts a V2 attribute (with no requirement level) to a v1 attribute.
@@ -216,6 +244,8 @@ impl ImportableDependency for V2Schema {
         attribute_catalog: &mut AttributeCatalog,
     ) -> Result<Vec<Group>, Error> {
         let mut result = vec![];
+        let mut exclusion_errors: Vec<Error> = vec![];
+        let imp_prov = imports_provenance(imports);
 
         // Helper to map V2 provenance to V1 provenance.
         let get_source_provenance = |prov: &weaver_resolved_schema::v2::provenance::Provenance| -> weaver_semconv::provenance::Provenance {
@@ -235,6 +265,15 @@ impl ImportableDependency for V2Schema {
             let metric_name: &str = &m.name;
             include_all || metrics_imports_matcher.is_match(metric_name)
         }) {
+            if is_excluded(&m.common.annotations) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: m.id().to_owned(),
+                    r#type: GroupType::Metric.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imp_prov.clone(),
+                });
+                continue;
+            }
             let mut attributes = vec![];
             for ar in m.attributes.iter() {
                 let attr = self.attribute_catalog.attribute(&ar.base).ok_or(
@@ -287,6 +326,15 @@ impl ImportableDependency for V2Schema {
             let event_name: &str = &e.name;
             include_all || events_imports_matcher.is_match(event_name)
         }) {
+            if is_excluded(&e.common.annotations) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: e.id().to_owned(),
+                    r#type: GroupType::Event.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imp_prov.clone(),
+                });
+                continue;
+            }
             let mut attributes = vec![];
             for ar in e.attributes.iter() {
                 let attr = self.attribute_catalog.attribute(&ar.base).ok_or(
@@ -339,6 +387,15 @@ impl ImportableDependency for V2Schema {
             let entity_type: &str = &e.r#type;
             include_all || entities_imports_matcher.is_match(entity_type)
         }) {
+            if is_excluded(&e.common.annotations) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: e.id().to_owned(),
+                    r#type: GroupType::Entity.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imp_prov.clone(),
+                });
+                continue;
+            }
             let mut attributes = vec![];
             for ar in e.identity.iter() {
                 // TODO - this should be non-panic errors.
@@ -415,6 +472,15 @@ impl ImportableDependency for V2Schema {
             let span_name: &str = &s.r#type;
             include_all || spans_imports_matcher.is_match(span_name)
         }) {
+            if is_excluded(&s.common.annotations) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: s.id().to_owned(),
+                    r#type: GroupType::Span.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imp_prov.clone(),
+                });
+                continue;
+            }
             let mut attributes = vec![];
             for ar in s.attributes.iter() {
                 let attr = self.attribute_catalog.attribute(&ar.base).ok_or(
@@ -470,6 +536,15 @@ impl ImportableDependency for V2Schema {
             let ag_id: &str = &ag.id;
             include_all || attribute_groups_imports_matcher.is_match(ag_id)
         }) {
+            if is_excluded(&ag.common.annotations) {
+                exclusion_errors.push(Error::ExcludedFromDependencyResolution {
+                    id: ag.id().to_owned(),
+                    r#type: GroupType::AttributeGroup.to_string(),
+                    used_in: "imports".to_owned(),
+                    provenance: imp_prov.clone(),
+                });
+                continue;
+            }
             let mut attributes = vec![];
             for ar in ag.attributes.iter() {
                 let attr = self.attribute_catalog.attribute(ar).ok_or(
@@ -511,6 +586,9 @@ impl ImportableDependency for V2Schema {
                 is_v2: true,
                 span_name_note: None,
             });
+        }
+        if !exclusion_errors.is_empty() {
+            return Err(Error::CompoundError(exclusion_errors));
         }
         Ok(result)
     }
