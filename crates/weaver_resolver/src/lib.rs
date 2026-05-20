@@ -596,11 +596,8 @@ mod tests {
 
     #[test]
     fn test_dep_exclusion_v2_fails_ref() {
-        // Uses the *_cargo sibling fixture so the dep path is crate-relative
-        // (matching cargo's CWD). The plain `consumer_v2_fails_ref` fixture is
-        // workspace-relative for inspection via `weaver registry resolve`.
         assert_exclusion_error(
-            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_ref_cargo"),
+            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_ref"),
             "parent.excluded",
             "metric.consumer.requests",
         );
@@ -785,5 +782,60 @@ groups:
             Ok(_) => {}
             Err(e) => panic!("expected success when both are excluded; got {e:?}"),
         }
+    }
+
+    #[test]
+    fn test_dep_exclusion_migration_redefine() {
+        // Parent registry has an attribute, a metric, and a span — all
+        // deprecated and excluded from dependency resolution. The consumer
+        // depends on the parent and redefines exactly the same items.
+        // Resolution must succeed: the parent items are hidden from
+        // dependents, so the consumer's redefinitions take effect.
+        let result = resolve_at("data/registry-test-dep-exclusion/migration_consumer");
+        let resolved = match result {
+            WResult::Ok(s) | WResult::OkWithNFEs(s, _) => s,
+            WResult::FatalErr(e) => panic!("expected success; got {e:?}"),
+        };
+
+        let attrs: Vec<&str> = resolved
+            .catalog
+            .attributes()
+            .map(|a| a.name.as_str())
+            .collect();
+        assert!(
+            attrs.contains(&"moved.attr"),
+            "expected moved.attr in catalog, got {attrs:?}"
+        );
+
+        let metric = resolved
+            .groups(GroupType::Metric)
+            .get("metric.moved.metric")
+            .cloned()
+            .expect("metric.moved.metric should be present");
+        assert_eq!(
+            metric.deprecated, None,
+            "consumer metric must not inherit parent deprecation"
+        );
+
+        let span = resolved
+            .groups(GroupType::Span)
+            .get("span.moved.span")
+            .cloned()
+            .expect("span.moved.span should be present");
+        assert_eq!(
+            span.deprecated, None,
+            "consumer span must not inherit parent deprecation"
+        );
+    }
+
+    #[test]
+    fn test_within_registry_leak_v2_refinement() {
+        // V2: a public metric_refinement targets an excluded base metric in
+        // the same registry. Exercises the `extends` exclusion path on V2.
+        assert_exclusion_error(
+            resolve_at("data/registry-test-dep-exclusion/within_registry_v2_leak_ref"),
+            "metric.parent.base",
+            "child.refined",
+        );
     }
 }
