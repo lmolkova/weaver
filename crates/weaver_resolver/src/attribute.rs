@@ -186,13 +186,18 @@ impl AttributeCatalog {
                     }
                 }
                 if let Some(root_attr) = root_attr {
-                    if !group_excluded
-                        && root_attr
-                            .attribute
-                            .annotations
-                            .as_ref()
-                            .is_some_and(is_excluded)
-                    {
+                    let target_excluded = root_attr
+                        .attribute
+                        .annotations
+                        .as_ref()
+                        .is_some_and(is_excluded);
+                    // Cross-boundary refs to excluded items always fail; within
+                    // the registry, the consuming item gets a pass if it's excluded too.
+                    let fails = match &root_attr.source {
+                        AttributeSource::Dependency { .. } => target_excluded,
+                        AttributeSource::Local { .. } => target_excluded && !group_excluded,
+                    };
+                    if fails {
                         return Err(Error::ExcludedFromDependencyResolution {
                             id: r#ref.clone(),
                             r#type: "Attribute".to_owned(),

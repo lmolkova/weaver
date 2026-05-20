@@ -1,5 +1,0 @@
-description: Consumer registry whose imports glob matches an excluded parent metric.
-schema_url: https://consumer.example.com/schemas/1.0.0
-dependencies:
-  - schema_url: https://parent.example.com/schemas/1.0.0
-    registry_path: data/registry-test-dep-exclusion/published_v2

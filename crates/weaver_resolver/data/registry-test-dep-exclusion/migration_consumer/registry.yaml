@@ -23,3 +23,8 @@ metrics:
     attributes:
       - ref: moved.attr
         requirement_level: required
+  - name: greenfield.requests
+    instrument: counter
+    unit: "{request}"
+    stability: stable
+    brief: Brand-new metric that doesn't reference any parent items.

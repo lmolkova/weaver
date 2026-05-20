@@ -21,6 +21,16 @@ use crate::{
     Error,
 };
 
+/// Where a group lookup landed: in the local registry or in a dependency.
+/// Exclusion semantics differ between the two — local matches use the
+/// within-registry rule (both items must agree); dep matches use the boundary
+/// rule (any reference to an excluded item fails).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum GroupSource {
+    Local,
+    Dependency,
+}
+
 /// A summary of a group, used during refinement and extends resolution, along with its unresolved attributes.
 #[derive(Debug, Clone)]
 pub(crate) struct GroupSummary {
@@ -48,13 +58,15 @@ pub(crate) struct GroupSummary {
     pub attributes: Vec<UnresolvedAttribute>,
     /// The annotations of the group.
     pub annotations: Option<std::collections::BTreeMap<String, weaver_semconv::YamlValue>>,
+    /// Where this summary was looked up from.
+    pub source: GroupSource,
 }
 
 impl GroupSummary {
     /// Returns a group summary from this group.
     /// Does not include attributes because resolved Schema uses attribute refs,
     /// and this needs to fully resolve those attributes from the catalog.
-    pub(crate) fn from_without_attributes(group: &Group) -> Self {
+    pub(crate) fn from_without_attributes(group: &Group, source: GroupSource) -> Self {
         GroupSummary {
             r#type: group.r#type.clone(),
             brief: group.brief.clone(),
@@ -68,6 +80,7 @@ impl GroupSummary {
             span_kind: group.span_kind.clone(),
             attributes: vec![], // Will be set during the dependency or registry loops.
             annotations: group.annotations.clone(),
+            source,
         }
     }
 }
@@ -651,7 +664,7 @@ impl GroupRefinementLookup for V1Schema {
                     },
                 })
                 .collect();
-            let mut summary = GroupSummary::from_without_attributes(g);
+            let mut summary = GroupSummary::from_without_attributes(g, GroupSource::Dependency);
             summary.attributes = attributes;
             summary
         })
@@ -758,7 +771,7 @@ impl GroupRefinementLookup for V2Schema {
 
         // Now fill out all the attributes we need for `extends` and refinements.
         lookup_group.map(|g| {
-            let mut summary = GroupSummary::from_without_attributes(&g);
+            let mut summary = GroupSummary::from_without_attributes(&g, GroupSource::Dependency);
             summary.attributes = g
                 .attributes
                 .iter()

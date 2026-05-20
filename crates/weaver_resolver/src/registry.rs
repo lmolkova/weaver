@@ -23,7 +23,7 @@ use weaver_semconv::registry_repo::RegistryRepo;
 use weaver_semconv::semconv::{SemConvSpecV1WithProvenance, SemConvSpecWithProvenance};
 use weaver_semconv::v2::attribute_group::AttributeGroupVisibilitySpec;
 
-use crate::dependency::GroupSummary;
+use crate::dependency::{GroupSource, GroupSummary};
 
 /// A registry containing unresolved groups.
 #[derive(Debug)]
@@ -477,7 +477,8 @@ fn add_resolved_group_to_index(
     );
     _ = unresolved_group.group.extends.take();
     unresolved_group.include_groups.clear();
-    let mut summary = GroupSummary::from_without_attributes(&unresolved_group.group);
+    let mut summary =
+        GroupSummary::from_without_attributes(&unresolved_group.group, GroupSource::Local);
     summary.attributes = unresolved_group.attributes.clone();
     _ = group_index.insert(unresolved_group.group.id.clone(), summary);
     *resolved_group_count += 1;
@@ -508,7 +509,8 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                         .map(|a| a.spec.id().clone())
                         .collect::<Vec<_>>()
                 );
-                let mut summary = GroupSummary::from_without_attributes(&group.group);
+                let mut summary =
+                    GroupSummary::from_without_attributes(&group.group, GroupSource::Local);
                 summary.attributes = group.attributes.clone();
                 _ = group_index.insert(group.group.id.clone(), summary);
             }
@@ -520,12 +522,9 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                 if let Some(parent_summary) =
                     lookup_group_with_dependencies(dependencies, &group_index, extends)
                 {
-                    if let Some(err) = excluded_parent_error(
-                        unresolved_group,
-                        extends,
-                        &parent_summary.r#type,
-                        parent_summary.annotations.as_ref(),
-                    ) {
+                    if let Some(err) =
+                        excluded_parent_error(unresolved_group, extends, &parent_summary)
+                    {
                         errors.push(err);
                         continue;
                     }
@@ -620,12 +619,9 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
 
                 for include_group in unresolved_group.include_groups.iter() {
                     if let Some(summary) = group_index.get(include_group) {
-                        if let Some(err) = excluded_parent_error(
-                            unresolved_group,
-                            include_group,
-                            &summary.r#type,
-                            summary.annotations.as_ref(),
-                        ) {
+                        if let Some(err) =
+                            excluded_parent_error(unresolved_group, include_group, summary)
+                        {
                             errors.push(err);
                             all_resolved = false;
                             continue;
@@ -899,30 +895,33 @@ fn lookup_group_with_dependencies(
     local_index: &HashMap<String, GroupSummary>,
     id: &str,
 ) -> Option<GroupSummary> {
-    // First check our direct groups.
     if let Some(summary) = local_index.get(id) {
         return Some(summary.clone());
     }
-    // Now check dependencies in order.
     dependencies.iter().find_map(|d| d.lookup_group_summary(id))
 }
 
-/// Returns an `ExcludedFromDependencyResolution` error if a non-excluded `user`
-/// references an excluded target, otherwise `None`. References from an excluded
-/// user to an excluded target are allowed.
+/// Errors if `used_in` references an excluded `target`. A reference into a
+/// dependency always fails; within the same registry, it's only an error when
+/// `used_in` itself is not excluded.
 fn excluded_parent_error(
-    user: &UnresolvedGroup,
+    used_in: &UnresolvedGroup,
     target_id: &str,
-    target_type: &GroupType,
-    target_annotations: Option<&BTreeMap<String, weaver_semconv::YamlValue>>,
+    target: &GroupSummary,
 ) -> Option<Error> {
-    let user_excluded = user.group.annotations.as_ref().is_some_and(is_excluded);
-    let target_excluded = target_annotations.is_some_and(is_excluded);
-    (!user_excluded && target_excluded).then(|| Error::ExcludedFromDependencyResolution {
+    let target_excluded = target.annotations.as_ref().is_some_and(is_excluded);
+    if !target_excluded {
+        return None;
+    }
+    let fails = match target.source {
+        GroupSource::Dependency => true,
+        GroupSource::Local => !used_in.group.annotations.as_ref().is_some_and(is_excluded),
+    };
+    fails.then(|| Error::ExcludedFromDependencyResolution {
         id: target_id.to_owned(),
-        r#type: target_type.to_string(),
-        used_in: user.group.id.clone(),
-        provenance: user.provenance.clone().map(Box::new),
+        r#type: target.r#type.to_string(),
+        used_in: used_in.group.id.clone(),
+        provenance: used_in.provenance.clone().map(Box::new),
     })
 }
 

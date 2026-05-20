@@ -187,7 +187,7 @@ mod tests {
     use weaver_common::result::WResult;
     use weaver_common::vdir::VirtualDirectoryPath;
     use weaver_semconv::attribute::{BasicRequirementLevelSpec, RequirementLevel};
-    use weaver_semconv::group::GroupType;
+    use weaver_semconv::group::{GroupType, ImportsWithProvenance};
     use weaver_semconv::registry_repo::RegistryRepo;
 
     #[test]
@@ -557,10 +557,57 @@ mod tests {
         SchemaResolver::resolve(loaded, false)
     }
 
-    fn assert_exclusion_error(
+    fn resolve_inline_with_parent(
+        consumer_yaml: &str,
+        parent_path: &str,
+    ) -> WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error> {
+        let parent_vpath = VirtualDirectoryPath::LocalFolder {
+            path: parent_path.to_owned(),
+        };
+        let parent_repo = RegistryRepo::try_new(None, &parent_vpath, &mut vec![])
+            .expect("Failed to create parent registry repo");
+        let mut diag_msgs = DiagnosticMessages::empty();
+        let parent_loaded = SchemaResolver::load_semconv_repository(parent_repo, false)
+            .capture_non_fatal_errors(&mut diag_msgs)
+            .expect("Failed to load parent registry");
+
+        let consumer = crate::LoadedSemconvRegistry::create_from_string(consumer_yaml)
+            .expect("Failed to load consumer yaml");
+        let with_dep = match consumer {
+            crate::LoadedSemconvRegistry::Unresolved {
+                repo,
+                specs,
+                imports,
+                ..
+            } => {
+                // create_from_string does not extract `imports:` from the spec;
+                // do it here so this helper handles imports-driven scenarios.
+                let mut all_imports = imports;
+                for s in &specs {
+                    let v1 = s.clone().into_v1();
+                    if let Some(i) = v1.spec.imports() {
+                        all_imports.push(ImportsWithProvenance {
+                            imports: i.clone(),
+                            provenance: v1.provenance.clone(),
+                        });
+                    }
+                }
+                crate::LoadedSemconvRegistry::Unresolved {
+                    repo,
+                    specs,
+                    imports: all_imports,
+                    dependencies: vec![parent_loaded],
+                }
+            }
+            _ => panic!("Expected unresolved consumer registry"),
+        };
+
+        SchemaResolver::resolve(with_dep, false)
+    }
+
+    fn assert_exclusion_errors(
         result: WResult<weaver_resolved_schema::ResolvedTelemetrySchema, crate::Error>,
-        expected_id: &str,
-        expected_used_in: &str,
+        expected: &[(&str, &str)],
     ) {
         let err = match result {
             WResult::Ok(_) | WResult::OkWithNFEs(_, _) => {
@@ -570,17 +617,19 @@ mod tests {
         };
         let mut errors = vec![];
         collect_errors(&err, &mut errors);
-        let found = errors.iter().any(|e| {
-            matches!(
-                e,
-                crate::Error::ExcludedFromDependencyResolution { id, used_in, .. }
-                    if id == expected_id && used_in == expected_used_in
-            )
-        });
-        assert!(
-            found,
-            "expected ExcludedFromDependencyResolution(id={expected_id}, used_in={expected_used_in}); got {errors:#?}"
-        );
+        for (expected_id, expected_used_in) in expected {
+            let found = errors.iter().any(|e| {
+                matches!(
+                    e,
+                    crate::Error::ExcludedFromDependencyResolution { id, used_in, .. }
+                        if id == expected_id && used_in == expected_used_in
+                )
+            });
+            assert!(
+                found,
+                "expected ExcludedFromDependencyResolution(id={expected_id}, used_in={expected_used_in}); got {errors:#?}"
+            );
+        }
     }
 
     fn collect_errors<'a>(err: &'a crate::Error, out: &mut Vec<&'a crate::Error>) {
@@ -594,57 +643,85 @@ mod tests {
         }
     }
 
+    const PUBLISHED_V2_PATH: &str = "data/registry-test-dep-exclusion/published_v2";
+
     #[test]
-    fn test_dep_exclusion_v2_fails_ref() {
-        assert_exclusion_error(
-            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_ref"),
-            "parent.excluded",
-            "metric.consumer.requests",
+    fn test_dep_exclusion_v2_fails() {
+        // Resolver is fail-fast across stages (extends, attr refs, imports),
+        // so each leak path is exercised in its own minimal consumer spec.
+        // Inline YAML keeps the test bodies adjacent to their assertions.
+        let ref_yaml = r#"
+file_format: definition/2
+metrics:
+  - name: consumer.requests
+    brief: References an excluded parent attribute.
+    instrument: counter
+    unit: "{request}"
+    stability: stable
+    attributes:
+      - ref: parent.excluded
+        requirement_level: required
+"#;
+        assert_exclusion_errors(
+            resolve_inline_with_parent(ref_yaml, PUBLISHED_V2_PATH),
+            &[("parent.excluded", "metric.consumer.requests")],
+        );
+
+        let extends_yaml = r#"
+groups:
+  - id: consumer.requests
+    type: metric
+    metric_name: consumer.requests
+    instrument: counter
+    unit: "1"
+    metric_requirement_level: recommended
+    stability: stable
+    brief: Extends an excluded parent metric.
+    extends: parent.excluded.metric
+"#;
+        assert_exclusion_errors(
+            resolve_inline_with_parent(extends_yaml, PUBLISHED_V2_PATH),
+            &[("parent.excluded.metric", "consumer.requests")],
+        );
+
+        let imports_yaml = r#"
+file_format: definition/2
+imports:
+  metrics:
+    - parent.excluded.metric
+"#;
+        assert_exclusion_errors(
+            resolve_inline_with_parent(imports_yaml, PUBLISHED_V2_PATH),
+            &[("parent.excluded.metric", "imports")],
         );
     }
 
     #[test]
-    fn test_dep_exclusion_v2_fails_extends() {
-        assert_exclusion_error(
-            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_extends"),
-            "parent.excluded.metric",
-            "consumer.requests",
+    fn test_dep_exclusion_v2_excluded_user_still_fails() {
+        // Cross-registry references to an excluded item ALWAYS fail, even when
+        // the consumer's own using item is marked excluded. The boundary rule
+        // is absolute: excluded items in a dependency are invisible during
+        // resolution. (The within-registry "both excluded → ok" relaxation is
+        // covered by `test_within_registry_both_excluded`.)
+        let consumer = r#"
+file_format: definition/2
+metrics:
+  - name: consumer.also.excluded
+    brief: Consumer metric that itself is excluded.
+    instrument: counter
+    unit: "{request}"
+    stability: stable
+    annotations:
+      dependency_resolution:
+        exclude: true
+    attributes:
+      - ref: parent.excluded
+        requirement_level: required
+"#;
+        assert_exclusion_errors(
+            resolve_inline_with_parent(consumer, PUBLISHED_V2_PATH),
+            &[("parent.excluded", "metric.consumer.also.excluded")],
         );
-    }
-
-    #[test]
-    fn test_dep_exclusion_v2_fails_imports() {
-        assert_exclusion_error(
-            resolve_at("data/registry-test-dep-exclusion/consumer_v2_fails_imports"),
-            "parent.excluded.metric",
-            "imports",
-        );
-    }
-
-    #[test]
-    fn test_dep_exclusion_v2_succeeds() {
-        let result = resolve_at("data/registry-test-dep-exclusion/consumer_v2_succeeds");
-        match result {
-            WResult::Ok(resolved) | WResult::OkWithNFEs(resolved, _) => {
-                let metrics = resolved.groups(GroupType::Metric);
-                let metric = metrics
-                    .get("metric.consumer.requests")
-                    .expect("metric.consumer.requests should be present");
-                assert_eq!(metric.attributes.len(), 1);
-            }
-            WResult::FatalErr(e) => panic!("expected success; got {e:?}"),
-        }
-    }
-
-    #[test]
-    fn test_dep_exclusion_v2_excluded_user() {
-        // When the consumer's own group is also marked excluded, references
-        // to excluded parent items are allowed.
-        let result = resolve_at("data/registry-test-dep-exclusion/consumer_v2_excluded_user");
-        match result {
-            WResult::Ok(_) | WResult::OkWithNFEs(_, _) => {}
-            WResult::FatalErr(e) => panic!("expected success; got {e:?}"),
-        }
     }
 
     fn create_registry_from_string(
@@ -826,16 +903,24 @@ groups:
             span.deprecated, None,
             "consumer span must not inherit parent deprecation"
         );
+
+        // Greenfield metric (no parent equivalent, no refs) resolves cleanly
+        // alongside the redefined items.
+        assert!(
+            resolved
+                .groups(GroupType::Metric)
+                .contains_key("metric.greenfield.requests"),
+            "greenfield metric should resolve"
+        );
     }
 
     #[test]
     fn test_within_registry_leak_v2_refinement() {
         // V2: a public metric_refinement targets an excluded base metric in
         // the same registry. Exercises the `extends` exclusion path on V2.
-        assert_exclusion_error(
+        assert_exclusion_errors(
             resolve_at("data/registry-test-dep-exclusion/within_registry_v2_leak_ref"),
-            "metric.parent.base",
-            "child.refined",
+            &[("metric.parent.base", "child.refined")],
         );
     }
 }

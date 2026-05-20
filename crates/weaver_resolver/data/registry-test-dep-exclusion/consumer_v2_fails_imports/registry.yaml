@@ -1,4 +1,0 @@
-file_format: definition/2
-imports:
-  metrics:
-    - parent.excluded.metric
