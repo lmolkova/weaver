@@ -2,6 +2,14 @@
   {
     "name": "test.attr",
     "type": "int",
+    "brief": "Refined identity attribute",
+    "requirement_level": "recommended",
+    "stability": "stable",
+    "role": "identifying"
+  },
+  {
+    "name": "test.attr",
+    "type": "int",
     "brief": "Test attribute",
     "requirement_level": "recommended",
     "stability": "stable"

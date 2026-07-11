@@ -185,6 +185,20 @@ pub enum Error {
         signal_type: String,
     },
 
+    /// An entity refinement demotes an identity attribute of the base entity.
+    #[error("Refinement `{refinement_id}` lists `{attribute_id}` under `description`, but it is an identity attribute of `{ref}`.")]
+    #[diagnostic(help(
+        "To refine an identity attribute, list it under `identity` instead of `description`."
+    ))]
+    EntityIdentityAttributeDemoted {
+        /// The id of the refinement with the issue.
+        refinement_id: String,
+        /// The entity being refined.
+        r#ref: String,
+        /// The identity attribute listed under `description`.
+        attribute_id: String,
+    },
+
     /// A duplicate attribute id error.
     #[error("The attribute id `{attribute_id}` is declared multiple times in the following groups:\n{group_ids:?}")]
     DuplicateAttributeId {

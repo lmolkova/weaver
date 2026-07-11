@@ -44,7 +44,12 @@ pub struct EntityRefinement {
     pub id: SignalId,
     /// The name of the entity being refined.
     pub r#ref: SignalId,
-    /// The additional attributes to describe the Entity.
+    /// Refinements or additional identity attributes of the Entity.
+    /// Attributes listed here keep (or are given) the identifying role.
+    #[serde(default)]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub identity: Vec<AttributeRef>,
+    /// Refinements or additional attributes to describe the Entity.
     #[serde(default)]
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub description: Vec<AttributeRef>,
@@ -116,10 +121,16 @@ impl EntityRefinement {
     /// Converts a v2 entity refinement into a v1 GroupSpec.
     #[must_use]
     pub fn into_v1_group(self) -> GroupSpec {
+        // Roles are set explicitly from the list the attribute appears in. The
+        // resolver rejects a refinement that demotes a base identity attribute
+        // to descriptive.
         let attributes = self
-            .description
+            .identity
             .into_iter()
-            .map(|a| a.into_v1_attribute_with_role(crate::attribute::AttributeRole::Descriptive))
+            .map(|a| a.into_v1_attribute_with_role(crate::attribute::AttributeRole::Identifying))
+            .chain(self.description.into_iter().map(|a| {
+                a.into_v1_attribute_with_role(crate::attribute::AttributeRole::Descriptive)
+            }))
             .collect();
 
         GroupSpec {
@@ -219,6 +230,38 @@ brief: Test entity refinement
 extends: entity.my_entity
 stability: stable
 is_v2: true
+"#,
+        );
+    }
+
+    #[test]
+    fn test_entity_refinement_attribute_translation() {
+        parse_and_translate_refinement(
+            // V2 - EntityRefinement
+            r#"id: entity.refinement.my_entity
+ref: my_entity
+brief: Test entity refinement
+stability: stable
+identity:
+  - ref: some_attr
+    brief: Refined identity attribute
+description:
+  - ref: some_other_attr
+"#,
+            // V1 - Group
+            r#"id: entity.refinement.my_entity
+type: entity
+name: entity.refinement.my_entity
+brief: Test entity refinement
+extends: entity.my_entity
+stability: stable
+is_v2: true
+attributes:
+  - ref: some_attr
+    brief: Refined identity attribute
+    role: identifying
+  - ref: some_other_attr
+    role: descriptive
 "#,
         );
     }

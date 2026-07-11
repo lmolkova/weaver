@@ -572,6 +572,19 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                     errors.push(err);
                     continue;
                 }
+                if unresolved_group.is_v2 && unresolved_group.group.r#type == GroupType::Entity {
+                    let demotions = entity_identity_demotions(
+                        unresolved_group,
+                        extends,
+                        &parent_summary.attributes,
+                    );
+                    if !demotions.is_empty() {
+                        // Leave the group unresolved so the errors are
+                        // reported once no further progress can be made.
+                        errors.extend(demotions);
+                        continue;
+                    }
+                }
                 unresolved_group.attributes = resolve_inheritance_attrs_unified(
                     &unresolved_group.group.id,
                     &unresolved_group.attributes,
@@ -729,6 +742,43 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
         }
     }
     Ok(())
+}
+
+/// Returns an error for every attribute an entity refinement lists under
+/// `description` (descriptive role) while the base entity declares it as an
+/// identity attribute. Refining an identity attribute is only allowed under
+/// `identity`, so the demotion is rejected instead of silently applied.
+fn entity_identity_demotions(
+    group: &UnresolvedGroup,
+    extends: &str,
+    parent_attrs: &[UnresolvedAttribute],
+) -> Vec<Error> {
+    use weaver_semconv::attribute::AttributeRole;
+
+    let role_of = |spec: &AttributeSpec| match spec {
+        AttributeSpec::Ref { role, .. } | AttributeSpec::Id { role, .. } => role.clone(),
+    };
+
+    group
+        .attributes
+        .iter()
+        .filter_map(|attr| {
+            let AttributeSpec::Ref { r#ref, role, .. } = &attr.spec else {
+                return None;
+            };
+            if *role != Some(AttributeRole::Descriptive) {
+                return None;
+            }
+            let parent_is_identity = parent_attrs.iter().any(|p| {
+                p.spec.id() == *r#ref && role_of(&p.spec) == Some(AttributeRole::Identifying)
+            });
+            parent_is_identity.then(|| Error::EntityIdentityAttributeDemoted {
+                refinement_id: group.group.id.clone(),
+                r#ref: extends.to_owned(),
+                attribute_id: r#ref.clone(),
+            })
+        })
+        .collect()
 }
 
 fn resolve_inheritance_attrs_unified(

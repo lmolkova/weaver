@@ -93,5 +93,8 @@ entity_refinements:
   - id: entity.refined.entity
     ref: base.entity
     brief: Refined entity
+    identity:
+      - ref: test.attr
+        brief: Refined identity attribute
     description:
       - ref: test.attr2
