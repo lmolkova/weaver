@@ -306,7 +306,7 @@
           ]
         },
         "description": {
-          "description": "List of attributes that describe to this entity.",
+          "description": "List of attributes that describe this entity.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EntityAttribute"
@@ -493,7 +493,7 @@
           ]
         },
         "description": {
-          "description": "List of attributes that describe to this entity.",
+          "description": "List of attributes that describe this entity.",
           "type": "array",
           "items": {
             "$ref": "#/$defs/EntityAttribute"
