@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 # Unreleased
 
+- Represent v2 entity refinements in the resolved and materialized schema under `refinements.entities`, alongside span, metric, and event refinements, allow to refine identity attributes. ([#TODO](https://github.com/open-telemetry/weaver/pull/TODO) by @lmolkova)
 - Support signal refinements over a published dependency. ([#1587](https://github.com/open-telemetry/weaver/pull/1587) by @lmolkova)
 - Fix panic when a registry, policy, or template path uses a commit SHA. ([#1414](https://github.com/open-telemetry/weaver/pull/1414))
 - Add a stats dashboard with charts to the `serve` UI. ([#1570](https://github.com/open-telemetry/weaver/pull/1570) by @jerbly)

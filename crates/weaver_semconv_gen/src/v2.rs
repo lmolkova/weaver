@@ -343,6 +343,12 @@ fn lookup_id(registry: &ResolvedTelemetrySchema, id: &str) -> Result<Option<Reso
             .iter()
             .find(|s| s.id == id)
             .map(|s| resolved_span(&s.span, &registry.attribute_catalog))),
+        IdLookupV2::Refinement(crate::parser::RefinementLookup::Entity { id }) => Ok(registry
+            .refinements
+            .entities
+            .iter()
+            .find(|e| e.id == id)
+            .map(|e| resolved_entity(&e.entity, &registry.attribute_catalog))),
     }
 }
 
@@ -416,7 +422,7 @@ mod tests {
     use weaver_resolved_schema::v2::{
         attribute::{Attribute, AttributeRef},
         attribute_group::AttributeGroup,
-        entity::{Entity, EntityAttributeRef},
+        entity::{Entity, EntityAttributeRef, EntityRefinement},
         event::{Event, EventAttributeRef, EventRefinement},
         metric::{Metric, MetricAttributeRef, MetricRefinement},
         refinements::Refinements,
@@ -596,6 +602,22 @@ mod tests {
                             ),
                         }],
                         entity_associations: vec![],
+                        common: CommonFields::default(),
+                        provenance: Default::default(),
+                    },
+                }],
+                entities: vec![EntityRefinement {
+                    id: "test".to_owned().into(),
+                    entity: Entity {
+                        requirement_level: Some(SignalRequirementLevel::Recommended),
+                        r#type: "test.entity".to_owned().into(),
+                        identity: vec![EntityAttributeRef {
+                            base: AttributeRef(0),
+                            requirement_level: weaver_semconv::attribute::RequirementLevel::Basic(
+                                weaver_semconv::attribute::BasicRequirementLevelSpec::Required,
+                            ),
+                        }],
+                        description: vec![],
                         common: CommonFields::default(),
                         provenance: Default::default(),
                     },
