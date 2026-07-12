@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 # Unreleased
 
+- Reject v2 entity refinements that change the base entity's identity. ([#TODO](https://github.com/open-telemetry/weaver/pull/TODO) by @lmolkova)
 - Represent v2 entity refinements in the resolved and materialized schema, allow to refine identity attributes. ([#1588](https://github.com/open-telemetry/weaver/pull/1588) by @lmolkova)
 - Support signal refinements over a published dependency. ([#1587](https://github.com/open-telemetry/weaver/pull/1587) by @lmolkova)
 - Fix panic when a registry, policy, or template path uses a commit SHA. ([#1414](https://github.com/open-telemetry/weaver/pull/1414))
