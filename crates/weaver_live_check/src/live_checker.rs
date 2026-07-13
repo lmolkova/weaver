@@ -6,7 +6,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
-use weaver_semconv::{attribute::AttributeType, group::GroupType};
+use weaver_semconv::{attribute::AttributeType, group::GroupTypeInfo};
 
 use crate::{
     advice::Advisor, finding_modifier::FindingModifier, otlp_logger::OtlpEmitter,
@@ -58,19 +58,19 @@ impl LiveChecker {
         match registry.as_ref() {
             VersionedRegistry::V1(registry) => {
                 for group in &registry.groups {
-                    if group.r#type == GroupType::Metric {
+                    if group.r#type == GroupTypeInfo::Metric {
                         if let Some(metric_name) = &group.metric_name {
                             let group_rc = Rc::new(VersionedSignal::Group(Box::new(group.clone())));
                             let _ = semconv_metrics.insert(metric_name.clone(), group_rc);
                         }
                     }
-                    if group.r#type == GroupType::Event {
+                    if group.r#type == GroupTypeInfo::Event {
                         if let Some(event_name) = &group.name {
                             let group_rc = Rc::new(VersionedSignal::Group(Box::new(group.clone())));
                             let _ = semconv_events.insert(event_name.clone(), group_rc);
                         }
                     }
-                    if group.r#type == GroupType::Entity {
+                    if group.r#type == GroupTypeInfo::Entity {
                         if let Some(entity_name) = &group.name {
                             let entity_rc = Rc::new(VersionedEntity::V1(Box::new(group.clone())));
                             let _ = semconv_entities.insert(entity_name.clone(), entity_rc);
@@ -220,7 +220,7 @@ mod tests {
             AttributeType, BasicRequirementLevelSpec, EnumEntriesSpec, Examples,
             PrimitiveOrArrayTypeSpec, RequirementLevel, TemplateTypeSpec, ValueSpec,
         },
-        group::{GroupType, InstrumentSpec, SpanKindSpec},
+        group::{GroupTypeInfo, InstrumentSpec, SpanKindSpec},
         stability::Stability,
         YamlValue,
     };
@@ -657,7 +657,7 @@ mod tests {
                 registry_url: "TEST".to_owned(),
                 groups: vec![ResolvedGroup {
                     id: "test.comprehensive.internal".to_owned(),
-                    r#type: GroupType::Span,
+                    r#type: GroupTypeInfo::Span,
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -900,7 +900,7 @@ mod tests {
                     // Attribute group for system memory
                     ResolvedGroup {
                         id: "registry.system.memory".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         brief: "Describes System Memory attributes".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -966,7 +966,7 @@ mod tests {
                     // System uptime metric
                     ResolvedGroup {
                         id: "metric.system.uptime".to_owned(),
-                        r#type: GroupType::Metric,
+                        r#type: GroupTypeInfo::Metric,
                         brief: "The time the system has been running".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -990,7 +990,7 @@ mod tests {
                     // System memory usage metric
                     ResolvedGroup {
                         id: "metric.system.memory.usage".to_owned(),
-                        r#type: GroupType::Metric,
+                        r#type: GroupTypeInfo::Metric,
                         brief: "Reports memory in use by state.".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -1101,7 +1101,7 @@ mod tests {
                 registry_url: "TEST".to_owned(),
                 groups: vec![ResolvedGroup {
                     id: "custom.comprehensive.internal".to_owned(),
-                    r#type: GroupType::Span,
+                    r#type: GroupTypeInfo::Span,
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -1668,7 +1668,7 @@ mod tests {
                 groups: vec![
                     ResolvedGroup {
                         id: "event.session.start".to_owned(),
-                        r#type: GroupType::Event,
+                        r#type: GroupTypeInfo::Event,
                         brief: "This event represents a session start".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -1747,7 +1747,7 @@ mod tests {
                     },
                     ResolvedGroup {
                         id: "event.example.event".to_owned(),
-                        r#type: GroupType::Event,
+                        r#type: GroupTypeInfo::Event,
                         brief: "An example event".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -2262,7 +2262,7 @@ mod tests {
                     // Entity group
                     ResolvedGroup {
                         id: "entity.deployment".to_owned(),
-                        r#type: GroupType::Entity,
+                        r#type: GroupTypeInfo::Entity,
                         brief: "A deployment entity".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -2371,7 +2371,7 @@ mod tests {
                     // Event group with entity association
                     ResolvedGroup {
                         id: "event.deployment.started".to_owned(),
-                        r#type: GroupType::Event,
+                        r#type: GroupTypeInfo::Event,
                         brief: "A deployment has started".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -2633,7 +2633,7 @@ mod tests {
     fn entity_group(type_name: &str, attr: Attribute) -> ResolvedGroup {
         ResolvedGroup {
             id: format!("entity.{type_name}"),
-            r#type: GroupType::Entity,
+            r#type: GroupTypeInfo::Entity,
             brief: String::new(),
             note: String::new(),
             prefix: String::new(),
@@ -2660,7 +2660,7 @@ mod tests {
     fn assoc_event_group(name: &str, associations: Vec<EntityAssociation>) -> ResolvedGroup {
         ResolvedGroup {
             id: format!("event.{name}"),
-            r#type: GroupType::Event,
+            r#type: GroupTypeInfo::Event,
             brief: String::new(),
             note: String::new(),
             prefix: String::new(),
@@ -3000,7 +3000,7 @@ mod tests {
                 groups: vec![
                     ResolvedGroup {
                         id: "entity.host".to_owned(),
-                        r#type: GroupType::Entity,
+                        r#type: GroupTypeInfo::Entity,
                         brief: "A host entity".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),
@@ -3043,7 +3043,7 @@ mod tests {
                     },
                     ResolvedGroup {
                         id: "metric.system.uptime".to_owned(),
-                        r#type: GroupType::Metric,
+                        r#type: GroupTypeInfo::Metric,
                         brief: "System uptime".to_owned(),
                         note: "".to_owned(),
                         prefix: "".to_owned(),

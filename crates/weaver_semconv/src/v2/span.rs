@@ -11,7 +11,7 @@ use crate::{
     attribute::AttributeSpec,
     deprecated::Deprecated,
     entity_association::EntityAssociation,
-    group::{GroupSpec, GroupType, SpanKindSpec},
+    group::{GroupSpec, GroupType, GroupTypeInfo, SpanKindSpec},
     signal_requirement_level::SignalRequirementLevel,
     stability::Stability,
     v2::{attribute::AttributeRef, signal_id::SignalId, CommonFields},
@@ -146,7 +146,7 @@ impl Span {
         let (attribute_refs, include_groups) = split_span_attributes_and_groups(self.attributes);
         GroupSpec {
             id: format!("span.{}", &self.r#type),
-            r#type: GroupType::Span,
+            r#type: GroupTypeInfo::Span,
             brief: self.common.brief,
             note: self.common.note,
             prefix: Default::default(),
@@ -184,7 +184,7 @@ impl SpanRefinement {
         let (attribute_refs, include_groups) = split_span_attributes_and_groups(self.attributes);
         GroupSpec {
             id: self.id.to_string(),
-            r#type: GroupType::Span,
+            r#type: GroupTypeInfo::refinement(GroupType::Span),
             brief: self.brief.unwrap_or_default(),
             note: self.note.unwrap_or_default(),
             prefix: Default::default(),

@@ -16,7 +16,7 @@ use weaver_resolved_schema::registry::{Group, Registry};
 use weaver_semconv::any_value::AnyValueSpec;
 use weaver_semconv::deprecated::Deprecated;
 use weaver_semconv::entity_association::EntityAssociation;
-use weaver_semconv::group::{GroupType, InstrumentSpec, SpanKindSpec};
+use weaver_semconv::group::{GroupTypeInfo, InstrumentSpec, SpanKindSpec};
 use weaver_semconv::signal_requirement_level::SignalRequirementLevel;
 use weaver_semconv::stability::Stability;
 use weaver_semconv::YamlValue;
@@ -39,7 +39,7 @@ pub struct ResolvedGroup {
     /// The id that uniquely identifies the semantic convention.
     pub id: String,
     /// The type of the group including the specific fields for each type.
-    pub r#type: GroupType,
+    pub r#type: GroupTypeInfo,
     /// A brief description of the semantic convention.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub brief: String,
@@ -140,7 +140,7 @@ impl ResolvedGroup {
     pub fn try_from_resolved(group: &Group, catalog: &Catalog) -> Result<Self, Error> {
         let mut errors = Vec::new();
         let id = group.id.clone();
-        let group_type = group.r#type.clone();
+        let group_type = group.r#type;
         let brief = group.brief.clone();
         let note = group.note.clone();
         let prefix = group.prefix.clone();
@@ -205,7 +205,7 @@ impl ResolvedRegistry {
             .iter()
             .map(|group| {
                 let id = group.id.clone();
-                let group_type = group.r#type.clone();
+                let group_type = group.r#type;
                 let brief = group.brief.clone();
                 let note = group.note.clone();
                 let prefix = group.prefix.clone();
@@ -273,7 +273,7 @@ mod tests {
     use serde_json::to_string_pretty;
     use weaver_resolved_schema::catalog::Catalog;
     use weaver_resolved_schema::registry::{Group, Registry};
-    use weaver_semconv::group::GroupType;
+    use weaver_semconv::group::GroupTypeInfo;
 
     #[test]
     fn test_json_schema_gen() {
@@ -292,7 +292,7 @@ mod tests {
             groups: vec![
                 Group {
                     id: "zebra.group".to_owned(),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: "Zebra group".to_owned(),
                     note: String::new(),
                     prefix: String::new(),
@@ -318,7 +318,7 @@ mod tests {
                 },
                 Group {
                     id: "apple.group".to_owned(),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: "Apple group".to_owned(),
                     note: String::new(),
                     prefix: String::new(),
@@ -344,7 +344,7 @@ mod tests {
                 },
                 Group {
                     id: "middle.group".to_owned(),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: "Middle group".to_owned(),
                     note: String::new(),
                     prefix: String::new(),

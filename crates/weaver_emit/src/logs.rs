@@ -7,7 +7,7 @@ use opentelemetry::logs::{AnyValue, LogRecord, Logger, LoggerProvider, Severity}
 use opentelemetry::{Array, Value};
 use opentelemetry_sdk::logs::SdkLoggerProvider;
 use weaver_forge::{registry::ResolvedRegistry, v2::registry::ForgeResolvedRegistry};
-use weaver_semconv::group::GroupType;
+use weaver_semconv::group::GroupTypeInfo;
 
 /// Convert an OpenTelemetry Value to AnyValue for log records
 fn value_to_any_value(value: Value) -> AnyValue {
@@ -47,7 +47,7 @@ pub(crate) fn emit_logs_for_registry(
 
     // Emit each event as a log record to the OTLP receiver.
     for group in registry.groups.iter() {
-        if group.r#type == GroupType::Event {
+        if group.r#type == GroupTypeInfo::Event {
             let event_name = group.name.as_ref().unwrap_or(&group.id).clone();
 
             let mut log_record = logger.create_log_record();

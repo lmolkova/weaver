@@ -15,7 +15,7 @@ use weaver_live_check::Sample;
 use weaver_semconv::attribute::{
     AttributeSpec, AttributeType, Examples, PrimitiveOrArrayTypeSpec, RequirementLevel,
 };
-use weaver_semconv::group::{GroupSpec, GroupType, InstrumentSpec, SpanKindSpec};
+use weaver_semconv::group::{GroupSpec, GroupTypeInfo, InstrumentSpec, SpanKindSpec};
 use weaver_semconv::stability::Stability;
 
 const MAX_EXAMPLES: usize = 5;
@@ -221,7 +221,7 @@ impl AccumulatedSamples {
 
             groups.push(GroupSpec {
                 id: "resource".to_owned(),
-                r#type: GroupType::Entity,
+                r#type: GroupTypeInfo::Entity,
                 brief: String::new(),
                 stability: Some(Stability::Development),
                 attributes,
@@ -236,7 +236,7 @@ impl AccumulatedSamples {
 
             groups.push(GroupSpec {
                 id: format!("span.{}", sanitize_id(&span.name)),
-                r#type: GroupType::Span,
+                r#type: GroupTypeInfo::Span,
                 brief: String::new(),
                 stability: Some(Stability::Development),
                 span_kind: Some(span.kind.clone()),
@@ -252,7 +252,7 @@ impl AccumulatedSamples {
 
                 groups.push(GroupSpec {
                     id: format!("span_event.{}", sanitize_id(&event.name)),
-                    r#type: GroupType::Event,
+                    r#type: GroupTypeInfo::Event,
                     brief: String::new(),
                     stability: Some(Stability::Development),
                     name: Some(event.name.clone()),
@@ -269,7 +269,7 @@ impl AccumulatedSamples {
 
             groups.push(GroupSpec {
                 id: format!("metric.{}", sanitize_id(&metric.name)),
-                r#type: GroupType::Metric,
+                r#type: GroupTypeInfo::Metric,
                 brief: String::new(),
                 stability: Some(Stability::Development),
                 metric_name: Some(metric.name.clone()),
@@ -287,7 +287,7 @@ impl AccumulatedSamples {
 
             groups.push(GroupSpec {
                 id: format!("event.{}", sanitize_id(&event.name)),
-                r#type: GroupType::Event,
+                r#type: GroupTypeInfo::Event,
                 brief: String::new(),
                 stability: Some(Stability::Development),
                 name: Some(event.name.clone()),
@@ -1195,7 +1195,7 @@ mod tests {
         assert_eq!(registry.groups.len(), 1);
         let group = &registry.groups[0];
         assert_eq!(group.id, "resource");
-        assert_eq!(group.r#type, GroupType::Entity);
+        assert_eq!(group.r#type, GroupTypeInfo::Entity);
         assert_eq!(group.stability, Some(Stability::Development));
         assert_eq!(group.attributes.len(), 1);
     }
@@ -1225,7 +1225,7 @@ mod tests {
         assert_eq!(registry.groups.len(), 1);
         let group = &registry.groups[0];
         assert_eq!(group.id, "span.http_get");
-        assert_eq!(group.r#type, GroupType::Span);
+        assert_eq!(group.r#type, GroupTypeInfo::Span);
         assert_eq!(group.span_kind, Some(SpanKindSpec::Client));
         assert_eq!(group.attributes.len(), 1);
     }
@@ -1250,7 +1250,7 @@ mod tests {
         assert_eq!(registry.groups.len(), 1);
         let group = &registry.groups[0];
         assert_eq!(group.id, "metric.http.server.duration");
-        assert_eq!(group.r#type, GroupType::Metric);
+        assert_eq!(group.r#type, GroupTypeInfo::Metric);
         assert_eq!(group.metric_name, Some("http.server.duration".to_owned()));
         assert_eq!(group.instrument, Some(InstrumentSpec::Histogram));
         assert_eq!(group.unit, Some("ms".to_owned()));
@@ -1296,7 +1296,7 @@ mod tests {
         assert_eq!(registry.groups.len(), 1);
         let group = &registry.groups[0];
         assert_eq!(group.id, "event.user.signup");
-        assert_eq!(group.r#type, GroupType::Event);
+        assert_eq!(group.r#type, GroupTypeInfo::Event);
         assert_eq!(group.name, Some("user.signup".to_owned()));
     }
 
@@ -1341,7 +1341,7 @@ mod tests {
             .find(|group| group.id == "span_event.exception")
             .expect("span event group should exist");
 
-        assert_eq!(span_event_group.r#type, GroupType::Event);
+        assert_eq!(span_event_group.r#type, GroupTypeInfo::Event);
         assert_eq!(span_event_group.name, Some("exception".to_owned()));
         let attr_ids: Vec<_> = span_event_group
             .attributes

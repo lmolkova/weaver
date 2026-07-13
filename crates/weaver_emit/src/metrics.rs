@@ -9,7 +9,7 @@ use opentelemetry::metrics::Meter;
 use opentelemetry::KeyValue;
 use weaver_forge::registry::ResolvedRegistry;
 use weaver_forge::v2::registry::ForgeResolvedRegistry;
-use weaver_semconv::group::GroupType;
+use weaver_semconv::group::GroupTypeInfo;
 use weaver_semconv::group::InstrumentSpec;
 
 /// Emit a single metric using the provided instrument spec
@@ -64,7 +64,7 @@ pub(crate) fn emit_metrics_for_registry(registry: &ResolvedRegistry) {
 
     // Emit each metric to the OTLP receiver.
     for group in registry.groups.iter() {
-        if group.r#type == GroupType::Metric {
+        if group.r#type == GroupTypeInfo::Metric {
             if let Some(instrument) = &group.instrument {
                 let metric_name = group.metric_name.clone().unwrap_or("".to_owned());
                 let unit = group.unit.clone().unwrap_or("".to_owned());

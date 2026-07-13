@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     deprecated::Deprecated,
     entity_association::EntityAssociation,
-    group::{GroupSpec, GroupType},
+    group::{GroupSpec, GroupType, GroupTypeInfo},
     signal_requirement_level::SignalRequirementLevel,
     stability::Stability,
     v2::{
@@ -91,7 +91,7 @@ impl Event {
         let (attribute_refs, include_groups) = split_attributes_and_groups(self.attributes);
         GroupSpec {
             id: format!("event.{}", &self.name),
-            r#type: GroupType::Event,
+            r#type: GroupTypeInfo::Event,
             brief: self.common.brief,
             note: self.common.note,
             prefix: Default::default(),
@@ -129,7 +129,7 @@ impl EventRefinement {
         let (attribute_refs, include_groups) = split_attributes_and_groups(self.attributes);
         GroupSpec {
             id: self.id.to_string(),
-            r#type: GroupType::Event,
+            r#type: GroupTypeInfo::refinement(GroupType::Event),
             brief: self.brief.unwrap_or_default(),
             note: self.note.unwrap_or_default(),
             prefix: Default::default(),

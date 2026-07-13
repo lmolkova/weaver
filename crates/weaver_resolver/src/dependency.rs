@@ -11,7 +11,7 @@ use weaver_resolved_schema::ResolvedTelemetrySchema as V1Schema;
 use weaver_resolved_schema::{attribute::UnresolvedAttribute, v2::Signal};
 use weaver_semconv::attribute::{AttributeRole, BasicRequirementLevelSpec, RequirementLevel};
 use weaver_semconv::deprecated::Deprecated;
-use weaver_semconv::group::{GroupType, InstrumentSpec, SpanKindSpec};
+use weaver_semconv::group::{GroupType, GroupTypeInfo, InstrumentSpec, SpanKindSpec};
 use weaver_semconv::group::{GroupWildcard, ImportsWithProvenance};
 use weaver_semconv::signal_requirement_level::SignalRequirementLevel;
 use weaver_semconv::stability::Stability;
@@ -33,7 +33,7 @@ pub(crate) enum GroupSource {
 #[derive(Debug, Clone)]
 pub(crate) struct GroupSummary {
     /// The type of the semantic convention.
-    pub r#type: GroupType,
+    pub r#type: GroupTypeInfo,
     /// The brief description of the semantic convention.
     pub brief: String,
     /// The note of the semantic convention.
@@ -69,7 +69,7 @@ impl GroupSummary {
     /// and this needs to fully resolve those attributes from the catalog.
     pub(crate) fn from_without_attributes(group: &Group, source: GroupSource) -> Self {
         GroupSummary {
-            r#type: group.r#type.clone(),
+            r#type: group.r#type,
             brief: group.brief.clone(),
             note: group.note.clone(),
             stability: group.stability.clone(),
@@ -182,7 +182,7 @@ impl ImportableDependency for V1Schema {
                 .flat_map(|i| i.imports.attribute_groups.as_deref().unwrap_or_default()),
         )?;
 
-        let matches_explicitly = move |g: &Group| match g.r#type {
+        let matches_explicitly = move |g: &Group| match g.r#type.group_type() {
             GroupType::AttributeGroup => explicit_attribute_groups_matcher.is_match(&g.id),
             GroupType::Span => explicit_spans_matcher.is_match(&g.id),
             GroupType::Event => g
@@ -202,7 +202,7 @@ impl ImportableDependency for V1Schema {
             GroupType::Undefined => false,
         };
 
-        let matches_by_any = move |g: &Group| match g.r#type {
+        let matches_by_any = move |g: &Group| match g.r#type.group_type() {
             GroupType::AttributeGroup => all_attribute_groups_matcher.is_match(&g.id),
             GroupType::Span => all_spans_matcher.is_match(&g.id),
             GroupType::Event => g
@@ -233,7 +233,7 @@ impl ImportableDependency for V1Schema {
             let decision = g
                 .annotations
                 .as_ref()
-                .map(|a| import_decision(a, matched_explicitly, &g.id, g.r#type.clone()))
+                .map(|a| import_decision(a, matched_explicitly, &g.id, g.r#type))
                 .unwrap_or(ImportDecision::Include);
             match decision {
                 ImportDecision::Include => {}
@@ -279,7 +279,7 @@ fn import_decision(
     annotations: &std::collections::BTreeMap<String, weaver_semconv::YamlValue>,
     matched_explicitly: bool,
     id: &str,
-    r#type: GroupType,
+    r#type: GroupTypeInfo,
 ) -> ImportDecision {
     if !is_excluded(annotations) {
         return ImportDecision::Include;
@@ -411,7 +411,7 @@ impl ImportableDependency for V2Schema {
                 &m.common.annotations,
                 matched_explicitly,
                 m.id(),
-                GroupType::Metric,
+                GroupTypeInfo::Metric,
             ) {
                 ImportDecision::Include => {}
                 ImportDecision::Skip => continue,
@@ -437,7 +437,7 @@ impl ImportableDependency for V2Schema {
             }
             result.push(Group {
                 id: m.id().to_owned(),
-                r#type: GroupType::Metric,
+                r#type: GroupTypeInfo::Metric,
                 brief: m.common.brief.clone(),
                 note: m.common.note.clone(),
                 prefix: "".to_owned(),
@@ -477,7 +477,7 @@ impl ImportableDependency for V2Schema {
                 &e.common.annotations,
                 matched_explicitly,
                 e.id(),
-                GroupType::Event,
+                GroupTypeInfo::Event,
             ) {
                 ImportDecision::Include => {}
                 ImportDecision::Skip => continue,
@@ -503,7 +503,7 @@ impl ImportableDependency for V2Schema {
             }
             result.push(Group {
                 id: e.id().to_owned(),
-                r#type: GroupType::Event,
+                r#type: GroupTypeInfo::Event,
                 brief: e.common.brief.clone(),
                 note: e.common.note.clone(),
                 prefix: "".to_owned(),
@@ -543,7 +543,7 @@ impl ImportableDependency for V2Schema {
                 &e.common.annotations,
                 matched_explicitly,
                 e.id(),
-                GroupType::Entity,
+                GroupTypeInfo::Entity,
             ) {
                 ImportDecision::Include => {}
                 ImportDecision::Skip => continue,
@@ -593,7 +593,7 @@ impl ImportableDependency for V2Schema {
             }
             result.push(Group {
                 id: e.id().to_owned(),
-                r#type: GroupType::Entity,
+                r#type: GroupTypeInfo::Entity,
                 brief: e.common.brief.clone(),
                 note: e.common.note.clone(),
                 prefix: "".to_owned(),
@@ -633,7 +633,7 @@ impl ImportableDependency for V2Schema {
                 &s.common.annotations,
                 matched_explicitly,
                 s.id(),
-                GroupType::Span,
+                GroupTypeInfo::Span,
             ) {
                 ImportDecision::Include => {}
                 ImportDecision::Skip => continue,
@@ -659,7 +659,7 @@ impl ImportableDependency for V2Schema {
             }
             result.push(Group {
                 id: s.id().to_owned(),
-                r#type: GroupType::Span,
+                r#type: GroupTypeInfo::Span,
                 brief: s.common.brief.clone(),
                 note: s.common.note.clone(),
                 prefix: "".to_owned(),
@@ -699,7 +699,7 @@ impl ImportableDependency for V2Schema {
                 &ag.common.annotations,
                 matched_explicitly,
                 ag.id(),
-                GroupType::AttributeGroup,
+                GroupTypeInfo::AttributeGroup,
             ) {
                 ImportDecision::Include => {}
                 ImportDecision::Skip => continue,
@@ -725,7 +725,7 @@ impl ImportableDependency for V2Schema {
             }
             result.push(Group {
                 id: ag.id().to_owned(),
-                r#type: GroupType::AttributeGroup,
+                r#type: GroupTypeInfo::AttributeGroup,
                 brief: ag.common.brief.clone(),
                 note: ag.common.note.clone(),
                 prefix: "".to_owned(),
@@ -834,7 +834,7 @@ impl GroupRefinementLookup for V2Schema {
             .find(|m| m.id() == id)
             .map(|m| Group {
                 id: m.id().to_owned(),
-                r#type: GroupType::Metric,
+                r#type: GroupTypeInfo::Metric,
                 brief: m.common.brief.clone(),
                 note: m.common.note.clone(),
                 prefix: "".to_owned(),
@@ -865,7 +865,7 @@ impl GroupRefinementLookup for V2Schema {
                     .find(|e| e.id() == id)
                     .map(|e| Group {
                         id: e.id().to_owned(),
-                        r#type: GroupType::Event,
+                        r#type: GroupTypeInfo::Event,
                         brief: e.common.brief.clone(),
                         note: e.common.note.clone(),
                         prefix: "".to_owned(),
@@ -897,7 +897,7 @@ impl GroupRefinementLookup for V2Schema {
                     .find(|e| e.id() == id)
                     .map(|e| Group {
                         id: e.id().to_owned(),
-                        r#type: GroupType::Entity,
+                        r#type: GroupTypeInfo::Entity,
                         brief: e.common.brief.clone(),
                         note: e.common.note.clone(),
                         prefix: "".to_owned(),
@@ -929,7 +929,7 @@ impl GroupRefinementLookup for V2Schema {
                     .find(|s| s.id() == id)
                     .map(|s| Group {
                         id: s.id().to_owned(),
-                        r#type: GroupType::Span,
+                        r#type: GroupTypeInfo::Span,
                         brief: s.common.brief.clone(),
                         note: s.common.note.clone(),
                         prefix: "".to_owned(),
@@ -1058,7 +1058,7 @@ mod tests {
                 groups: vec![
                     weaver_resolved_schema::registry::Group {
                         id: "a".to_owned(),
-                        r#type: weaver_semconv::group::GroupType::AttributeGroup,
+                        r#type: weaver_semconv::group::GroupTypeInfo::AttributeGroup,
                         brief: Default::default(),
                         note: Default::default(),
                         prefix: Default::default(),
@@ -1084,7 +1084,7 @@ mod tests {
                     },
                     weaver_resolved_schema::registry::Group {
                         id: "span.v1".to_owned(),
-                        r#type: weaver_semconv::group::GroupType::Span,
+                        r#type: weaver_semconv::group::GroupTypeInfo::Span,
                         brief: Default::default(),
                         note: Default::default(),
                         prefix: Default::default(),
@@ -1211,27 +1211,30 @@ mod tests {
         assert!(result_metric.is_some(), "Should find metric.a");
         assert_eq!(
             result_metric.unwrap().r#type,
-            weaver_semconv::group::GroupType::Metric
+            weaver_semconv::group::GroupTypeInfo::Metric
         );
 
         let result_event = d.lookup_group_summary("event.b");
         assert!(result_event.is_some(), "Should find event.b");
         assert_eq!(
             result_event.unwrap().r#type,
-            weaver_semconv::group::GroupType::Event
+            weaver_semconv::group::GroupTypeInfo::Event
         );
 
         let result_entity = d.lookup_group_summary("entity.c");
         assert!(result_entity.is_some(), "Should find entity.c");
         assert_eq!(
             result_entity.unwrap().r#type,
-            weaver_semconv::group::GroupType::Entity
+            weaver_semconv::group::GroupTypeInfo::Entity
         );
 
         let result_span = d.lookup_group_summary("span.d");
         assert!(result_span.is_some(), "Should find span.d");
         let span_summary = result_span.unwrap();
-        assert_eq!(span_summary.r#type, weaver_semconv::group::GroupType::Span);
+        assert_eq!(
+            span_summary.r#type,
+            weaver_semconv::group::GroupTypeInfo::Span
+        );
         assert_eq!(
             span_summary.span_kind,
             Some(weaver_semconv::group::SpanKindSpec::Client)

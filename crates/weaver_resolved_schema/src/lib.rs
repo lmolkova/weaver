@@ -13,7 +13,7 @@ use crate::resource::Resource;
 use serde::Serialize;
 use std::collections::{BTreeSet, HashMap};
 use weaver_semconv::deprecated::Deprecated;
-use weaver_semconv::group::GroupType;
+use weaver_semconv::group::GroupTypeInfo;
 use weaver_semconv::manifest::RegistryManifest;
 use weaver_semconv::schema_url::SchemaUrl;
 use weaver_version::schema_changes::{SchemaChanges, SchemaItemChange, SchemaItemType};
@@ -121,7 +121,7 @@ impl ResolvedTelemetrySchema {
         self.catalog = builder.build();
         self.registry.groups.push(Group {
             id: group_id.to_owned(),
-            r#type: GroupType::Metric,
+            r#type: GroupTypeInfo::Metric,
             brief: "".to_owned(),
             note: "".to_owned(),
             prefix: "".to_owned(),
@@ -172,7 +172,7 @@ impl ResolvedTelemetrySchema {
         self.catalog = builder.build();
         self.registry.groups.push(Group {
             id: group_id.to_owned(),
-            r#type: GroupType::AttributeGroup,
+            r#type: GroupTypeInfo::AttributeGroup,
             brief: "".to_owned(),
             note: "".to_owned(),
             prefix: "".to_owned(),
@@ -218,7 +218,7 @@ impl ResolvedTelemetrySchema {
         self.registry
             .groups
             .iter()
-            .filter(|group| group.r#type == GroupType::AttributeGroup)
+            .filter(|group| group.r#type == GroupTypeInfo::AttributeGroup)
             .flat_map(|group| {
                 group.attributes.iter().map(|attr_ref| {
                     // An attribute ref is a reference to an attribute in the catalog.
@@ -273,7 +273,7 @@ impl ResolvedTelemetrySchema {
 
     /// Get the groups of a specific type from the resolved telemetry schema.
     #[must_use]
-    pub fn groups(&self, group_type: GroupType) -> HashMap<&str, &Group> {
+    pub fn groups(&self, group_type: GroupTypeInfo) -> HashMap<&str, &Group> {
         self.registry
             .groups
             .iter()
@@ -284,7 +284,7 @@ impl ResolvedTelemetrySchema {
 
     /// Grab a specific type of group identified by the name (not id).
     #[must_use]
-    pub fn groups_by_name(&self, group_type: GroupType) -> HashMap<&str, &Group> {
+    pub fn groups_by_name(&self, group_type: GroupTypeInfo) -> HashMap<&str, &Group> {
         self.registry
             .groups
             .iter()
@@ -324,16 +324,16 @@ impl ResolvedTelemetrySchema {
         self.diff_attributes(baseline_schema, &mut changes);
 
         // Signals
-        let latest_signals = self.groups_by_name(GroupType::Metric);
-        let baseline_signals = baseline_schema.groups_by_name(GroupType::Metric);
+        let latest_signals = self.groups_by_name(GroupTypeInfo::Metric);
+        let baseline_signals = baseline_schema.groups_by_name(GroupTypeInfo::Metric);
         self.diff_signals(
             SchemaItemType::Metrics,
             &latest_signals,
             &baseline_signals,
             &mut changes,
         );
-        let latest_signals = self.groups_by_name(GroupType::Event);
-        let baseline_signals = baseline_schema.groups_by_name(GroupType::Event);
+        let latest_signals = self.groups_by_name(GroupTypeInfo::Event);
+        let baseline_signals = baseline_schema.groups_by_name(GroupTypeInfo::Event);
         self.diff_signals(
             SchemaItemType::Events,
             &latest_signals,
@@ -343,16 +343,16 @@ impl ResolvedTelemetrySchema {
         // Note: We cannot support spans here. Currently spans do not have a stable identifier to represent them.
         // This means `groups_by_name` never returns a group today.
         // See: https://github.com/open-telemetry/semantic-conventions/issues/2055
-        let latest_signals = self.groups_by_name(GroupType::Span);
-        let baseline_signals = baseline_schema.groups_by_name(GroupType::Span);
+        let latest_signals = self.groups_by_name(GroupTypeInfo::Span);
+        let baseline_signals = baseline_schema.groups_by_name(GroupTypeInfo::Span);
         self.diff_signals(
             SchemaItemType::Spans,
             &latest_signals,
             &baseline_signals,
             &mut changes,
         );
-        let latest_signals = self.groups_by_name(GroupType::Entity);
-        let baseline_signals = baseline_schema.groups_by_name(GroupType::Entity);
+        let latest_signals = self.groups_by_name(GroupTypeInfo::Entity);
+        let baseline_signals = baseline_schema.groups_by_name(GroupTypeInfo::Entity);
         self.diff_signals(
             SchemaItemType::Entities,
             &latest_signals,
@@ -536,7 +536,7 @@ mod tests {
     use crate::attribute::Attribute;
     use crate::ResolvedTelemetrySchema;
     use weaver_semconv::deprecated::Deprecated;
-    use weaver_semconv::group::GroupType;
+    use weaver_semconv::group::GroupTypeInfo;
     use weaver_semconv::signal_requirement_level::SignalRequirementLevel;
     use weaver_version::schema_changes::{SchemaItemChange, SchemaItemType};
 
@@ -859,7 +859,7 @@ mod tests {
         let mut schema = ResolvedTelemetrySchema::new("1.0", "", "");
         schema.registry.groups.push(Group {
             id: "metrics.test".to_owned(),
-            r#type: GroupType::Metric,
+            r#type: GroupTypeInfo::Metric,
             brief: "".to_owned(),
             note: "".to_owned(),
             prefix: "".to_owned(),
@@ -884,7 +884,7 @@ mod tests {
             span_name: None,
         });
 
-        let groups = schema.groups(GroupType::Metric);
+        let groups = schema.groups(GroupTypeInfo::Metric);
         assert_eq!(groups.len(), 1);
         let group = groups.get("metrics.test").unwrap();
         assert_eq!(group.requirement_level, Some(SignalRequirementLevel::OptIn));

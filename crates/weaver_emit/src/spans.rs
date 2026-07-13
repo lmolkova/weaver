@@ -12,7 +12,7 @@ use weaver_forge::{
     registry::ResolvedRegistry,
     v2::{registry::ForgeResolvedRegistry, span::SpanAttribute},
 };
-use weaver_semconv::group::{GroupType, SpanKindSpec};
+use weaver_semconv::group::{GroupTypeInfo, SpanKindSpec};
 
 // TODO These constants should be replaced with official semconvs when available.
 const WEAVER_EMIT_SPAN: &str = "otel.weaver.emit";
@@ -45,7 +45,7 @@ pub(crate) fn emit_trace_for_registry(registry: &ResolvedRegistry, registry_path
 
         // Emit each span to the OTLP receiver.
         for group in registry.groups.iter() {
-            if group.r#type == GroupType::Span {
+            if group.r#type == GroupTypeInfo::Span {
                 let _span = tracer
                     .span_builder(group.id.clone())
                     .with_kind(otel_span_kind(group.span_kind.as_ref()))

@@ -163,7 +163,7 @@ impl SemConvSpecV2 {
         if !self.attributes.is_empty() {
             groups.push(GroupSpec {
                 id: format!("registry.{file_name}"),
-                r#type: crate::group::GroupType::AttributeGroup,
+                r#type: crate::group::GroupTypeInfo::AttributeGroup,
                 attributes: self
                     .attributes
                     .into_iter()

@@ -18,7 +18,7 @@ use weaver_resolved_schema::lineage::{AttributeLineage, GroupLineage};
 use weaver_resolved_schema::registry::{Group, Registry};
 use weaver_semconv::attribute::AttributeSpec;
 use weaver_semconv::group::{
-    GroupSpecWithProvenance, GroupType, GroupWildcard, ImportsWithProvenance,
+    GroupSpecWithProvenance, GroupTypeInfo, GroupWildcard, ImportsWithProvenance,
 };
 use weaver_semconv::provenance::Provenance;
 use weaver_semconv::registry_repo::RegistryRepo;
@@ -285,7 +285,7 @@ pub fn check_root_attribute_id_duplicates(
     registry
         .groups
         .iter()
-        .filter(|group| group.r#type == GroupType::AttributeGroup)
+        .filter(|group| group.r#type == GroupTypeInfo::AttributeGroup)
         .for_each(|group| {
             // Iterate over all attribute references in the group.
             for attr_ref in group.attributes.iter() {
@@ -572,6 +572,20 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                     errors.push(err);
                     continue;
                 }
+                // A refinement must refine a base signal, not another
+                // refinement. Chained refinements are not supported.
+                if unresolved_group.is_v2 && parent_summary.r#type.is_refinement() {
+                    errors.push(Error::InvalidRefinement {
+                        refinement_id: unresolved_group.group.id.clone(),
+                        r#ref: extends.clone(),
+                        refinement_type: format!(
+                            "{:?}",
+                            unresolved_group.group.r#type.group_type()
+                        ),
+                        signal_type: format!("{:?} refinement", parent_summary.r#type.group_type()),
+                    });
+                    continue;
+                }
                 unresolved_group.attributes = resolve_inheritance_attrs_unified(
                     &unresolved_group.group.id,
                     &unresolved_group.attributes,
@@ -588,8 +602,11 @@ fn resolve_extends_references(ureg: &mut UnresolvedRegistry) -> Result<(), Error
                         errors.push(Error::InvalidRefinement {
                             refinement_id: unresolved_group.group.id.clone(),
                             r#ref: extends.clone(),
-                            refinement_type: format!("{:?}", unresolved_group.group.r#type),
-                            signal_type: format!("{:?}", parent_summary.r#type),
+                            refinement_type: format!(
+                                "{:?}",
+                                unresolved_group.group.r#type.group_type()
+                            ),
+                            signal_type: format!("{:?}", parent_summary.r#type.group_type()),
                         });
                     }
                     // Copy over fields refinements MUST use.
@@ -1041,7 +1058,7 @@ mod tests {
     use weaver_resolved_schema::attribute::Attribute;
     use weaver_resolved_schema::registry::Group;
     use weaver_resolved_schema::registry::Registry;
-    use weaver_semconv::group::GroupType;
+    use weaver_semconv::group::GroupTypeInfo;
     use weaver_semconv::provenance::Provenance;
     use weaver_semconv::registry_repo::RegistryRepo;
 
@@ -1407,7 +1424,7 @@ groups:
         let catalog = &resolved_schema.catalog;
         // Scan over all the metrics
         let mut metric_count = 0;
-        for metric in resolved_registry.groups(GroupType::Metric) {
+        for metric in resolved_registry.groups(GroupTypeInfo::Metric) {
             metric_count += 1;
             let _resolved_attributes: Vec<&Attribute> = metric.attributes(catalog)?;
             // Do something with the resolved attributes.
@@ -1419,7 +1436,7 @@ groups:
 
         // Scan over all the spans
         let mut span_count = 0;
-        for span in resolved_registry.groups(GroupType::Span) {
+        for span in resolved_registry.groups(GroupTypeInfo::Span) {
             span_count += 1;
             let _resolved_attributes: Vec<&Attribute> = span.attributes(catalog)?;
             // Do something with the resolved attributes.
@@ -1465,7 +1482,7 @@ groups:
             groups: vec![UnresolvedGroup {
                 group: Group {
                     id: "b".to_owned(),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: Default::default(),
                     note: Default::default(),
                     prefix: Default::default(),
@@ -1555,7 +1572,7 @@ groups:
                 UnresolvedGroup {
                     group: Group {
                         id: "b".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         brief: Default::default(),
                         note: Default::default(),
                         prefix: Default::default(),
@@ -1591,7 +1608,7 @@ groups:
                 UnresolvedGroup {
                     group: Group {
                         id: "a".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         brief: Default::default(),
                         note: Default::default(),
                         prefix: Default::default(),
@@ -1627,7 +1644,7 @@ groups:
                 UnresolvedGroup {
                     group: Group {
                         id: "c".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         brief: Default::default(),
                         note: Default::default(),
                         prefix: Default::default(),

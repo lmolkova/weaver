@@ -4,6 +4,7 @@ All notable changes to this project will be documented in this file.
 
 # Unreleased
 
+- Don't allow to refine refinements. ([#TODO](https://github.com/open-telemetry/weaver/pull/TODO) by @lmolkova)
 - Fix panic when a registry, policy, or template path uses a commit SHA. ([#1414](https://github.com/open-telemetry/weaver/pull/1414))
 - Add a stats dashboard with charts to the `serve` UI. ([#1570](https://github.com/open-telemetry/weaver/pull/1570) by @jerbly)
 - Add `semconv_grouped_entities` JQ helper. ([#1560](https://github.com/open-telemetry/weaver/pull/1560) by @lmolkova)

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     deprecated::Deprecated,
-    group::GroupSpec,
+    group::{GroupSpec, GroupType, GroupTypeInfo},
     signal_requirement_level::SignalRequirementLevel,
     stability::Stability,
     v2::{attribute::AttributeRef, signal_id::SignalId, CommonFields},
@@ -81,7 +81,7 @@ impl Entity {
 
         GroupSpec {
             id: format!("entity.{}", &self.r#type),
-            r#type: crate::group::GroupType::Entity,
+            r#type: GroupTypeInfo::Entity,
             brief: self.common.brief,
             note: self.common.note,
             prefix: Default::default(),
@@ -124,7 +124,7 @@ impl EntityRefinement {
 
         GroupSpec {
             id: self.id.to_string(),
-            r#type: crate::group::GroupType::Entity,
+            r#type: GroupTypeInfo::refinement(GroupType::Entity),
             brief: self.brief.unwrap_or_default(),
             note: self.note.unwrap_or_default(),
             prefix: Default::default(),

@@ -9,7 +9,7 @@
 //! prevent transitive leaks through resolved output.
 
 use std::collections::BTreeMap;
-use weaver_semconv::group::GroupType;
+use weaver_semconv::group::{GroupType, GroupTypeInfo};
 use weaver_semconv::v2::attribute_group::AttributeGroupVisibilitySpec;
 use weaver_semconv::YamlValue;
 
@@ -41,10 +41,10 @@ pub(crate) fn is_excluded(annotations: &BTreeMap<String, YamlValue>) -> bool {
 pub(crate) fn is_group_excluded(
     annotations: &Option<BTreeMap<String, YamlValue>>,
     visibility: Option<&AttributeGroupVisibilitySpec>,
-    group_type: &GroupType,
+    group_type: &GroupTypeInfo,
 ) -> bool {
     annotations.as_ref().is_some_and(is_excluded)
-        || (matches!(group_type, GroupType::AttributeGroup)
+        || (group_type.group_type() == GroupType::AttributeGroup
             && !matches!(visibility, Some(AttributeGroupVisibilitySpec::Public)))
 }
 
@@ -99,16 +99,16 @@ mod tests {
 
         // Signal groups: only the exclude annotation exempts them. Visibility
         // is irrelevant — signals always emit to v2 output.
-        assert!(!is_group_excluded(&None, None, &GroupType::Span));
+        assert!(!is_group_excluded(&None, None, &GroupTypeInfo::Span));
         assert!(!is_group_excluded(
             &None,
             Some(&AttributeGroupVisibilitySpec::Public),
-            &GroupType::Metric,
+            &GroupTypeInfo::Metric,
         ));
         assert!(is_group_excluded(
             &Some(excluded.clone()),
             None,
-            &GroupType::Span,
+            &GroupTypeInfo::Span,
         ));
 
         // Attribute groups: exempt unless visibility is explicitly Public.
@@ -117,20 +117,24 @@ mod tests {
         assert!(is_group_excluded(
             &None,
             Some(&AttributeGroupVisibilitySpec::Internal),
-            &GroupType::AttributeGroup,
+            &GroupTypeInfo::AttributeGroup,
         ));
-        assert!(is_group_excluded(&None, None, &GroupType::AttributeGroup,));
+        assert!(is_group_excluded(
+            &None,
+            None,
+            &GroupTypeInfo::AttributeGroup,
+        ));
         assert!(!is_group_excluded(
             &None,
             Some(&AttributeGroupVisibilitySpec::Public),
-            &GroupType::AttributeGroup,
+            &GroupTypeInfo::AttributeGroup,
         ));
         // Even a public attribute_group is exempt if it carries the exclude
         // annotation.
         assert!(is_group_excluded(
             &Some(excluded),
             Some(&AttributeGroupVisibilitySpec::Public),
-            &GroupType::AttributeGroup,
+            &GroupTypeInfo::AttributeGroup,
         ));
     }
 }

@@ -128,7 +128,7 @@ pub enum Error {
     ExcludedFromDependencyResolution {
         /// Id of the excluded attribute or group.
         id: String,
-        /// Kind: "Attribute" or a `GroupType` name.
+        /// Kind: "Attribute" or a `GroupTypeInfo` name.
         r#type: String,
         /// Id of the group or signal using the excluded item, or `imports` for manifest imports.
         used_in: String,

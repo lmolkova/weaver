@@ -248,11 +248,6 @@ pub fn convert_v1_to_v2(
 
     let v2_catalog = Catalog::from_attributes(attributes.into_iter().collect());
 
-    // Create a lookup so we can check inheritance.
-    let mut group_type_lookup = HashMap::new();
-    for g in r.groups.iter() {
-        let _ = group_type_lookup.insert(g.id.clone(), g.r#type.clone());
-    }
     // Pull signals from the registry and create a new span-focused registry.
     let mut spans = Vec::new();
     let mut span_refinements = Vec::new();
@@ -263,16 +258,9 @@ pub fn convert_v1_to_v2(
     let mut entities = Vec::new();
     let mut attribute_groups = Vec::new();
     for g in r.groups.iter() {
-        match g.r#type {
+        match g.r#type.group_type() {
             GroupType::Span => {
-                // Check if we extend another span.
-                let is_refinement = g
-                    .lineage
-                    .as_ref()
-                    .and_then(|l| l.extends_group.as_ref())
-                    .and_then(|parent| group_type_lookup.get(parent))
-                    .map(|t| *t == GroupType::Span)
-                    .unwrap_or(false);
+                let is_refinement = g.r#type.is_refinement();
                 // Pull all the attribute references.
                 let mut span_attributes = Vec::new();
                 for attr in g.attributes.iter().filter_map(|a| c.attribute(a)) {
@@ -357,13 +345,7 @@ pub fn convert_v1_to_v2(
                 }
             }
             GroupType::Event => {
-                let is_refinement = g
-                    .lineage
-                    .as_ref()
-                    .and_then(|l| l.extends_group.as_ref())
-                    .and_then(|parent| group_type_lookup.get(parent))
-                    .map(|t| *t == GroupType::Event)
-                    .unwrap_or(false);
+                let is_refinement = g.r#type.is_refinement();
                 let mut event_attributes = Vec::new();
                 for attr in g.attributes.iter().filter_map(|a| c.attribute(a)) {
                     if let Some(a) = v2_catalog.convert_ref(attr) {
@@ -415,14 +397,7 @@ pub fn convert_v1_to_v2(
                 }
             }
             GroupType::Metric => {
-                // Check if we extend another metric.
-                let is_refinement = g
-                    .lineage
-                    .as_ref()
-                    .and_then(|l| l.extends_group.as_ref())
-                    .and_then(|parent| group_type_lookup.get(parent))
-                    .map(|t| *t == GroupType::Metric)
-                    .unwrap_or(false);
+                let is_refinement = g.r#type.is_refinement();
                 let mut metric_attributes = Vec::new();
                 for attr in g.attributes.iter().filter_map(|a| c.attribute(a)) {
                     if let Some(a) = v2_catalog.convert_ref(attr) {
@@ -687,6 +662,7 @@ mod tests {
     use crate::lineage::AttributeLineage;
 
     use super::*;
+    use weaver_semconv::group::GroupTypeInfo;
 
     #[test]
     fn test_convert_span_v1_to_v2() {
@@ -751,7 +727,7 @@ mod tests {
             groups: vec![
                 Group {
                     id: "span.my-span".to_owned(),
-                    r#type: GroupType::Span,
+                    r#type: GroupTypeInfo::Span,
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -777,7 +753,7 @@ mod tests {
                 },
                 Group {
                     id: "span.custom".to_owned(),
-                    r#type: GroupType::Span,
+                    r#type: GroupTypeInfo::refinement(GroupType::Span),
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -840,7 +816,11 @@ mod tests {
         let span_group =
             |id: &str, lineage: Option<GroupLineage>, span_name: Option<SpanName>| Group {
                 id: id.to_owned(),
-                r#type: GroupType::Span,
+                r#type: if lineage.as_ref().is_some_and(|l| l.extends_group.is_some()) {
+                    GroupTypeInfo::refinement(GroupType::Span)
+                } else {
+                    GroupTypeInfo::Span
+                },
                 brief: "".to_owned(),
                 note: "".to_owned(),
                 prefix: "".to_owned(),
@@ -969,7 +949,7 @@ mod tests {
             groups: vec![
                 Group {
                     id: "metric.http".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -995,7 +975,7 @@ mod tests {
                 },
                 Group {
                     id: "metric.http.custom".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::refinement(GroupType::Metric),
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -1079,7 +1059,7 @@ mod tests {
             registry_url: "my.schema.url".to_owned(),
             groups: vec![Group {
                 id: "event.my-event".to_owned(),
-                r#type: GroupType::Event,
+                r#type: GroupTypeInfo::Event,
                 brief: "".to_owned(),
                 note: "".to_owned(),
                 prefix: "".to_owned(),
@@ -1147,7 +1127,7 @@ mod tests {
             registry_url: "my.schema.url".to_owned(),
             groups: vec![Group {
                 id: "entity.my-entity".to_owned(),
-                r#type: GroupType::Entity,
+                r#type: GroupTypeInfo::Entity,
                 brief: "".to_owned(),
                 note: "".to_owned(),
                 prefix: "".to_owned(),

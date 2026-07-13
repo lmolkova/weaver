@@ -10,7 +10,7 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use crate::{FindingLevel, LiveCheckResult, PolicyFinding, VersionedRegistry};
-use weaver_semconv::group::GroupType;
+use weaver_semconv::group::GroupTypeInfo;
 
 /// Cumulative statistics that track all telemetry data
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -92,12 +92,12 @@ impl CumulativeStatistics {
                             let _ = seen_attributes.insert(attribute.name.clone(), 0);
                         }
                     }
-                    if group.r#type == GroupType::Metric && group.deprecated.is_none() {
+                    if group.r#type == GroupTypeInfo::Metric && group.deprecated.is_none() {
                         if let Some(metric_name) = &group.metric_name {
                             let _ = seen_metrics.insert(metric_name.clone(), 0);
                         }
                     }
-                    if group.r#type == GroupType::Event && group.deprecated.is_none() {
+                    if group.r#type == GroupTypeInfo::Event && group.deprecated.is_none() {
                         if let Some(event_name) = &group.name {
                             let _ = seen_events.insert(event_name.clone(), 0);
                         }

@@ -489,7 +489,7 @@ mod tests {
     use std::collections::HashSet;
     use weaver_common::vdir::VirtualDirectoryPath;
     use weaver_semconv::attribute::{BasicRequirementLevelSpec, RequirementLevel};
-    use weaver_semconv::group::{GroupType, ImportsWithProvenance};
+    use weaver_semconv::group::{GroupTypeInfo, ImportsWithProvenance};
     use weaver_semconv::registry_repo::RegistryRepo;
 
     #[test]
@@ -575,7 +575,7 @@ mod tests {
                 assert!(group.is_some());
             }
 
-            let metrics = resolved_registry.groups(GroupType::Metric);
+            let metrics = resolved_registry.groups(GroupTypeInfo::Metric);
             let metric = metrics
                 .get("metric.auction.bid.count")
                 .expect("Metric not found");
@@ -638,15 +638,15 @@ mod tests {
         let resolved_registry = &resolved;
 
         let all_groups: Vec<String> = [
-            GroupType::AttributeGroup,
-            GroupType::Metric,
-            GroupType::Event,
-            GroupType::Span,
+            GroupTypeInfo::AttributeGroup,
+            GroupTypeInfo::Metric,
+            GroupTypeInfo::Event,
+            GroupTypeInfo::Span,
         ]
         .iter()
         .flat_map(|group_type| {
             resolved_registry
-                .groups(group_type.clone())
+                .groups(*group_type)
                 .keys()
                 .map(|k| (*k).to_owned())
                 .collect::<Vec<_>>()
@@ -714,7 +714,7 @@ mod tests {
         };
 
         let resolved_registry = &resolved;
-        let metrics = resolved_registry.groups(GroupType::Metric);
+        let metrics = resolved_registry.groups(GroupTypeInfo::Metric);
         let metric = metrics
             .get("metric.consumer.request.count")
             .expect("metric.consumer.request.count not found");
@@ -774,7 +774,7 @@ mod tests {
         };
 
         let resolved_registry = &resolved;
-        let metrics = resolved_registry.groups(GroupType::Metric);
+        let metrics = resolved_registry.groups(GroupTypeInfo::Metric);
         let metric = metrics
             .get("metric.app.request.count")
             .expect("metric.app.request.count not found");
@@ -1222,7 +1222,7 @@ groups:
         );
 
         let metric = resolved
-            .groups(GroupType::Metric)
+            .groups(GroupTypeInfo::Metric)
             .get("metric.moved.metric")
             .cloned()
             .expect("metric.moved.metric should be present");
@@ -1232,7 +1232,7 @@ groups:
         );
 
         let span = resolved
-            .groups(GroupType::Span)
+            .groups(GroupTypeInfo::Span)
             .get("span.moved.span")
             .cloned()
             .expect("span.moved.span should be present");
@@ -1245,7 +1245,7 @@ groups:
         // alongside the redefined items.
         assert!(
             resolved
-                .groups(GroupType::Metric)
+                .groups(GroupTypeInfo::Metric)
                 .contains_key("metric.greenfield.requests"),
             "greenfield metric should resolve"
         );
@@ -1259,6 +1259,49 @@ groups:
             resolve_at("data/registry-test-dep-exclusion/within_registry_v2_leak_ref"),
             &[("metric.parent.base", "child.refined")],
         );
+    }
+
+    #[test]
+    fn test_v2_refinement_cannot_refine_another_refinement() {
+        // A v2 refinement must refine a base signal, not another refinement.
+        // `metric.chained.leaf` refines `metric.chained.base`, which is itself
+        // a refinement of `base.metric` — this chain must be rejected.
+        let result = create_registry_from_string(
+            "
+file_format: definition/2
+attributes:
+  - key: test.attr
+    type: int
+    brief: Test attribute
+    stability: stable
+metrics:
+  - name: base.metric
+    requirement_level: recommended
+    instrument: histogram
+    unit: s
+    brief: Base metric
+    stability: stable
+    attributes:
+      - ref: test.attr
+metric_refinements:
+  - id: metric.chained.base
+    ref: base.metric
+    brief: First-level refinement of the base metric.
+  - id: metric.chained.leaf
+    ref: chained.base
+    brief: Invalid refinement of a refinement.",
+        );
+
+        match result.into_result_failing_non_fatal() {
+            Ok(_) => panic!("expected an InvalidRefinement error for a chained refinement"),
+            Err(e) => {
+                let msg = format!("{e:?}");
+                assert!(
+                    msg.contains("InvalidRefinement") && msg.contains("metric.chained.leaf"),
+                    "expected InvalidRefinement on metric.chained.leaf, got {e:?}"
+                );
+            }
+        }
     }
 
     #[test]

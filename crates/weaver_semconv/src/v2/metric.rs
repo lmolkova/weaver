@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     deprecated::Deprecated,
     entity_association::EntityAssociation,
-    group::{GroupSpec, InstrumentSpec},
+    group::{GroupSpec, GroupType, GroupTypeInfo, InstrumentSpec},
     signal_requirement_level::SignalRequirementLevel,
     stability::Stability,
     v2::{
@@ -101,7 +101,7 @@ impl Metric {
         let (attribute_refs, include_groups) = split_attributes_and_groups(self.attributes);
         GroupSpec {
             id: format!("metric.{}", &self.name),
-            r#type: crate::group::GroupType::Metric,
+            r#type: GroupTypeInfo::Metric,
             brief: self.common.brief,
             note: self.common.note,
             prefix: Default::default(),
@@ -139,7 +139,7 @@ impl MetricRefinement {
         let (attribute_refs, include_groups) = split_attributes_and_groups(self.attributes);
         GroupSpec {
             id: self.id.to_string(),
-            r#type: crate::group::GroupType::Metric,
+            r#type: GroupTypeInfo::refinement(GroupType::Metric),
             brief: self.brief.unwrap_or_default(),
             note: self.note.unwrap_or_default(),
             prefix: Default::default(),

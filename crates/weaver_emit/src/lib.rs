@@ -268,7 +268,7 @@ mod tests {
     use weaver_semconv::signal_requirement_level::SignalRequirementLevel;
     use weaver_semconv::{
         attribute::{AttributeType, Examples, PrimitiveOrArrayTypeSpec, RequirementLevel},
-        group::{GroupType, InstrumentSpec, SpanKindSpec},
+        group::{GroupTypeInfo, InstrumentSpec, SpanKindSpec},
         stability::Stability,
     };
 
@@ -280,7 +280,7 @@ mod tests {
             groups: vec![
                 ResolvedGroup {
                     id: "test.comprehensive.internal".to_owned(),
-                    r#type: GroupType::Span,
+                    r#type: GroupTypeInfo::Span,
                     brief: "".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -324,7 +324,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.updowncounter".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.updowncounter".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -347,7 +347,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.counter".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.counter".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -370,7 +370,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.gauge".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.gauge".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -393,7 +393,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.histogram".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.histogram".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -416,7 +416,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.updowncounter.double".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.updowncounter.double".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -439,7 +439,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.counter.double".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.counter.double".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -462,7 +462,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.gauge.double".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.gauge.double".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -485,7 +485,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "test.histogram.double".to_owned(),
-                    r#type: GroupType::Metric,
+                    r#type: GroupTypeInfo::Metric,
                     brief: "test.histogram.double".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),
@@ -508,7 +508,7 @@ mod tests {
                 },
                 ResolvedGroup {
                     id: "event.session.start".to_owned(),
-                    r#type: GroupType::Event,
+                    r#type: GroupTypeInfo::Event,
                     brief: "This event represents a session start".to_owned(),
                     note: "".to_owned(),
                     prefix: "".to_owned(),

@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    group::{GroupSpec, GroupType},
+    group::{GroupSpec, GroupTypeInfo},
     v2::{
         attribute::{split_attributes_and_groups, AttributeOrGroupRef},
         signal_id::SignalId,
@@ -67,7 +67,7 @@ impl AttributeGroup {
 
                 GroupSpec {
                     id: format!("{}", &internal.id),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: format!("{}", &internal.id),
                     note: "".to_owned(),
                     prefix: Default::default(),
@@ -97,7 +97,7 @@ impl AttributeGroup {
 
                 GroupSpec {
                     id: format!("{}", public.id),
-                    r#type: GroupType::AttributeGroup,
+                    r#type: GroupTypeInfo::AttributeGroup,
                     brief: public.common.brief,
                     note: public.common.note,
                     prefix: Default::default(),

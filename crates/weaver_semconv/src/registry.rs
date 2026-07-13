@@ -242,7 +242,7 @@ impl SemConvRegistry {
             group_breakdown: self
                 .specs
                 .iter()
-                .flat_map(|sc| sc.spec.groups.iter().map(|g| g.r#type.clone()))
+                .flat_map(|sc| sc.spec.groups.iter().map(|g| g.r#type.group_type()))
                 .fold(HashMap::new(), |mut acc, group_type| {
                     *acc.entry(group_type).or_insert(0) += 1;
                     acc
@@ -255,7 +255,7 @@ impl SemConvRegistry {
 #[cfg(test)]
 mod tests {
     use crate::attribute::{AttributeSpec, AttributeType, PrimitiveOrArrayTypeSpec};
-    use crate::group::{GroupSpec, GroupType};
+    use crate::group::{GroupSpec, GroupType, GroupTypeInfo};
     use crate::provenance::Provenance;
     use crate::registry::SemConvRegistry;
     use crate::registry_repo::RegistryRepo;
@@ -297,7 +297,7 @@ mod tests {
                 spec: Versioned::V1(SemConvSpecV1 {
                     groups: vec![GroupSpec {
                         id: "group1".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         attributes: vec![AttributeSpec::Id {
                             id: "attr1".to_owned(),
                             r#type: AttributeType::PrimitiveOrArray(
@@ -344,7 +344,7 @@ mod tests {
                 spec: Versioned::V1(SemConvSpecV1 {
                     groups: vec![GroupSpec {
                         id: "group2".to_owned(),
-                        r#type: GroupType::AttributeGroup,
+                        r#type: GroupTypeInfo::AttributeGroup,
                         attributes: vec![],
                         span_kind: None,
                         prefix: "".to_owned(),

@@ -18,7 +18,7 @@ use crate::registry::GroupStats::{
 use serde::{Deserialize, Serialize};
 use weaver_semconv::deprecated::Deprecated;
 use weaver_semconv::entity_association::EntityAssociation;
-use weaver_semconv::group::{GroupType, InstrumentSpec, SpanKindSpec};
+use weaver_semconv::group::{GroupType, GroupTypeInfo, InstrumentSpec, SpanKindSpec};
 use weaver_semconv::provenance::Provenance;
 use weaver_semconv::signal_requirement_level::SignalRequirementLevel;
 use weaver_semconv::stability::Stability;
@@ -53,7 +53,7 @@ pub struct Group {
     /// The id that uniquely identifies the semantic convention.
     pub id: String,
     /// The type of the group including the specific fields for each type.
-    pub r#type: GroupType,
+    pub r#type: GroupTypeInfo,
     /// A brief description of the semantic convention.
     pub brief: String,
     /// A more elaborate description of the semantic convention.
@@ -179,7 +179,7 @@ impl Group {
     /// For `span`, `entity` or `event` this is the `name` property.
     #[must_use]
     pub fn signal_name(&self) -> Option<&str> {
-        match self.r#type {
+        match self.r#type.group_type() {
             GroupType::AttributeGroup => Some(self.id.as_str()),
             // ToDo: Remove this comment way forward is agreed upon
             // https://github.com/open-telemetry/weaver/issues/785
@@ -203,11 +203,7 @@ impl Group {
     /// Returns true if the group is a v2 refinement.
     #[must_use]
     pub fn is_v2_refinement(&self) -> bool {
-        self.is_v2
-            && self
-                .lineage
-                .as_ref()
-                .is_some_and(|l| l.extends_group.is_some())
+        self.r#type.is_refinement()
     }
 }
 
@@ -319,7 +315,7 @@ impl Registry {
     /// # Arguments
     ///
     /// * `group_type` - The type of the groups to return.
-    pub fn groups(&self, group_type: GroupType) -> impl Iterator<Item = &Group> {
+    pub fn groups(&self, group_type: GroupTypeInfo) -> impl Iterator<Item = &Group> {
         self.groups
             .iter()
             .filter(move |group| group_type == group.r#type)
@@ -331,41 +327,39 @@ impl Registry {
             url: self.registry_url.clone(),
             group_count: self.groups.len(),
             group_breakdown: self.groups.iter().fold(HashMap::new(), |mut acc, group| {
-                let group_type = group.r#type.clone();
+                let group_type = group.r#type.group_type();
 
                 // Ensure we have an initialized entry
-                let entry = acc
-                    .entry(group_type.clone())
-                    .or_insert_with(|| match group_type {
-                        GroupType::AttributeGroup => AttributeGroup {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                        GroupType::Metric => Metric {
-                            common_stats: CommonGroupStats::default(),
-                            metric_names: HashSet::new(),
-                            instrument_breakdown: HashMap::new(),
-                            unit_breakdown: HashMap::new(),
-                        },
-                        GroupType::MetricGroup => MetricGroup {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                        GroupType::Event => Event {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                        GroupType::Entity => Entity {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                        GroupType::Scope => Scope {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                        GroupType::Span => Span {
-                            common_stats: CommonGroupStats::default(),
-                            span_kind_breakdown: HashMap::new(),
-                        },
-                        GroupType::Undefined => Undefined {
-                            common_stats: CommonGroupStats::default(),
-                        },
-                    });
+                let entry = acc.entry(group_type).or_insert_with(|| match group_type {
+                    GroupType::AttributeGroup => AttributeGroup {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                    GroupType::Metric => Metric {
+                        common_stats: CommonGroupStats::default(),
+                        metric_names: HashSet::new(),
+                        instrument_breakdown: HashMap::new(),
+                        unit_breakdown: HashMap::new(),
+                    },
+                    GroupType::MetricGroup => MetricGroup {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                    GroupType::Event => Event {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                    GroupType::Entity => Entity {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                    GroupType::Scope => Scope {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                    GroupType::Span => Span {
+                        common_stats: CommonGroupStats::default(),
+                        span_kind_breakdown: HashMap::new(),
+                    },
+                    GroupType::Undefined => Undefined {
+                        common_stats: CommonGroupStats::default(),
+                    },
+                });
 
                 // Update stats
                 match entry {

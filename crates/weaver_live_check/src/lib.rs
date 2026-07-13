@@ -219,7 +219,7 @@ impl VersionedSignal {
 /// Versioned enum for an entity definition
 #[derive(Debug, Clone, PartialEq)]
 pub enum VersionedEntity {
-    /// v1 entity — a ResolvedGroup with GroupType::Entity
+    /// v1 entity — a ResolvedGroup with GroupTypeInfo::Entity
     V1(Box<ResolvedGroup>),
     /// v2 entity
     V2(Box<weaver_forge::v2::entity::Entity>),
