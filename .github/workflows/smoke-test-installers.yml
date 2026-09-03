@@ -40,6 +40,12 @@ jobs:
           mkdir -p dist
           cp bundles/artifacts-build-local-*/* dist/
           cp bundles/artifacts-build-global/* dist/
+
+          # Intentional test simulation on ubuntu-24.04-arm: simulate missing binary (reproducing #1744)
+          if [ "${{ matrix.runner }}" = "ubuntu-24.04-arm" ]; then
+            echo "::warning::Simulating error: deleting arm64 linux binary to verify smoke test failure"
+            rm -f dist/weaver-*aarch64-unknown-linux-gnu.tar.*
+          fi
       - name: Install from the shell installer
         if: ${{ runner.os != 'Windows' }}
         shell: bash
