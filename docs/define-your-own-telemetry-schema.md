@@ -132,10 +132,10 @@ Internal attribute groups remain resolution helpers, with their attributes
 filtered by stability. References to removed public groups are errors. Filtering
 that leaves an entity without identity attributes is also an error.
 
-When filtering, dependency manifests must declare the requested stability or
-higher. Each transitive dependency must be at least as stable as its parent.
-Missing manifest stability defaults to `development`. Dependencies are not
-rewritten: use a stable dependency package when producing a stable registry.
+The same filter applies to direct and transitive dependencies, including
+published packages, regardless of their manifest stability. Only definitions
+and attributes meeting the requested threshold are available for imports and
+references. Dependency files are not modified.
 Deprecation and code-generation exclusions remain separate from stability.
 
 ```bash

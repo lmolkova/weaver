@@ -15,21 +15,6 @@ use weaver_semconv::v2::stability::Stability;
 
 use crate::{Error, LoadedSemconvRegistry};
 
-pub(crate) fn check_dependency(
-    repo: &weaver_semconv::registry_repo::RegistryRepo,
-    minimum: &Stability,
-) -> Result<Stability, Error> {
-    let manifest = repo.to_v2_manifest()?;
-    if !manifest.stability().meets(minimum) {
-        return Err(Error::DependencyStability {
-            dependency: manifest.schema_url().to_string(),
-            actual: manifest.stability().clone(),
-            required: minimum.clone(),
-        });
-    }
-    Ok(manifest.stability().clone())
-}
-
 pub(crate) fn filter_bundle(
     schema: crate::WeaverResolvedSchema,
     minimum: &Stability,
@@ -423,6 +408,8 @@ metrics:
     stability: development
     instrument: counter
     unit: '1'
+    attributes:
+      - ref: dev.attr
 metric_refinements:
   - id: stable.refinement
     ref: stable.metric
@@ -487,9 +474,6 @@ event_refinements:
                 spec.provenance.path = "model.yaml".to_owned();
             }
         }
-        if let Some(minimum) = &minimum {
-            filter_loaded(&mut loaded, minimum)?;
-        }
         let mut resolver = WeaverResolver::new(WeaverResolverConfig {
             stability: minimum.clone(),
             ..Default::default()
@@ -498,10 +482,6 @@ event_refinements:
             .resolve_loaded(loaded)
             .into_result_with_non_fatal()?;
         let resolved = std::sync::Arc::unwrap_or_clone(resolved);
-        let resolved = match minimum {
-            Some(minimum) => filter_bundle(resolved, &minimum)?,
-            None => resolved,
-        };
         match resolved {
             crate::WeaverResolvedSchema::V1(schema) => {
                 schema
@@ -639,7 +619,7 @@ event_refinements:
     }
 
     #[test]
-    fn imports_are_filtered_without_rewriting_cached_dependencies() {
+    fn imports_and_cached_dependencies_are_filtered() {
         let mut root = LoadedSemconvRegistry::create_from_string(
             "file_format: definition/2\nimports:\n  metrics: ['*']\n",
         )
@@ -665,7 +645,10 @@ event_refinements:
             });
         }
         filter_loaded(&mut root, &Stability::Stable).unwrap();
-        let mut resolver = WeaverResolver::new(WeaverResolverConfig::default());
+        let mut resolver = WeaverResolver::new(WeaverResolverConfig {
+            stability: Some(Stability::Stable),
+            ..Default::default()
+        });
         let (resolved, _) = resolver
             .resolve_loaded(root)
             .into_result_with_non_fatal()
@@ -681,7 +664,7 @@ event_refinements:
             .into_result_with_non_fatal()
             .unwrap()
             .0;
-        assert_eq!(cached.as_v2().unwrap().registry.metrics.len(), 2);
+        assert_eq!(cached.as_v2().unwrap().registry.metrics.len(), 1);
     }
 
     #[test]
@@ -729,103 +712,99 @@ groups:
             .any(|a| schema.attribute_catalog[a.base.0 as usize].key == "legacy.attr"));
     }
 
-    fn load_dependencies(
-        minimum: Option<Stability>,
-        dependency_stability: Option<&str>,
-        transitive_stability: Option<&str>,
-        published: bool,
-    ) -> Result<LoadedSemconvRegistry, Error> {
-        let temp = tempfile::tempdir().unwrap();
-        let root = temp.path().join("root");
-        let dependency = temp.path().join("dependency");
-        let transitive = temp.path().join("transitive");
-        for path in [&root, &dependency, &transitive] {
-            std::fs::create_dir_all(path).unwrap();
-        }
-        std::fs::write(root.join("manifest.yaml"), format!("schema_url: https://root.test/1.0.0\ndependencies:\n  - schema_url: https://dependency.test/1.0.0\n    registry_path: {}\n", dependency.display())).unwrap();
-        let mut manifest = "schema_url: https://dependency.test/1.0.0\n".to_owned();
-        if let Some(stability) = dependency_stability {
-            manifest.push_str(&format!("stability: {stability}\n"));
-        }
-        if let Some(stability) = transitive_stability {
-            manifest.push_str(&format!("dependencies:\n  - schema_url: https://transitive.test/1.0.0\n    registry_path: {}\n", transitive.display()));
-            std::fs::write(
-                transitive.join("manifest.yaml"),
-                format!("schema_url: https://transitive.test/1.0.0\nstability: {stability}\n"),
-            )
-            .unwrap();
-        }
-        if published {
-            let resolved = dependency.join("resolved.yaml");
-            manifest.push_str(&format!(
-                "file_format: manifest/2.0\nresolved_registry_uri: {}\n",
-                resolved.display()
-            ));
-            let mut schema = resolve(MODEL, None).unwrap();
-            schema.schema_url = "https://dependency.test/1.0.0".try_into().unwrap();
-            std::fs::write(resolved, serde_yaml::to_string(&schema).unwrap()).unwrap();
-        }
-        std::fs::write(dependency.join("manifest.yaml"), manifest).unwrap();
-        let path = weaver_common::vdir::VirtualDirectoryPath::LocalFolder {
-            path: root.display().to_string(),
-        };
-        let repo =
-            weaver_semconv::registry_repo::RegistryRepo::try_new(None, &path, &mut vec![]).unwrap();
-        crate::loader::load_semconv_repository_with_cache(
-            None,
-            repo,
-            false,
-            &weaver_common::http_auth::HttpAuthResolver::empty(),
-            minimum.as_ref(),
-        )
-        .into_result_with_non_fatal()
-        .map(|(loaded, _)| loaded)
-    }
-
     #[test]
-    fn dependency_stability_must_meet_threshold() {
+    fn lower_stability_dependencies_are_filtered() {
+        let model = MODEL.replace("metric_refinements:\n  - id: stable.refinement\n    ref: stable.metric\n  - id: dev.refinement\n    ref: dev.metric\n", "");
         for published in [false, true] {
-            assert!(
-                load_dependencies(Some(Stability::Stable), Some("stable"), None, published).is_ok()
-            );
-            assert!(
-                load_dependencies(Some(Stability::Beta), Some("stable"), None, published).is_ok()
-            );
-            for declared in [Some("development"), Some("release_candidate"), None] {
-                assert!(matches!(
-                    load_dependencies(Some(Stability::Stable), declared, None, published),
-                    Err(Error::DependencyStability { .. })
-                ));
-            }
-            assert!(load_dependencies(None, Some("development"), None, published).is_ok());
-        }
-    }
-
-    #[test]
-    fn transitive_dependencies_must_meet_their_parent_stability() {
-        for published in [false, true] {
-            let error = load_dependencies(
-                Some(Stability::Beta),
-                Some("stable"),
-                Some("beta"),
-                published,
-            )
-            .err()
-            .expect("Expected dependency stability error");
-            assert!(matches!(
-                error,
-                Error::DependencyStability {
-                    required: Stability::Stable,
-                    ..
+            for transitive in [false, true] {
+                for declared in ["development", "stable"] {
+                    for minimum in [None, Some(Stability::Stable)] {
+                        let temp = tempfile::Builder::new()
+                            .prefix("stability-deps-")
+                            .tempdir()
+                            .unwrap();
+                        let root = temp.path().join("root");
+                        let dependency = temp.path().join("dependency");
+                        let leaf = temp.path().join("leaf");
+                        for path in [&root, &dependency, &leaf] {
+                            std::fs::create_dir_all(path).unwrap();
+                        }
+                        let imports = "file_format: definition/2\nimports:\n  metrics: ['*']\n";
+                        std::fs::write(root.join("model.yaml"), imports).unwrap();
+                        std::fs::write(root.join("manifest.yaml"), format!("schema_url: https://root.test/1.0.0\ndependencies:\n  - schema_url: https://dependency.test/1.0.0\n    registry_path: {}\n", dependency.display())).unwrap();
+                        let mut manifest = format!(
+                            "schema_url: https://dependency.test/1.0.0\nstability: {declared}\n"
+                        );
+                        if transitive {
+                            manifest.push_str(&format!("dependencies:\n  - schema_url: https://leaf.test/1.0.0\n    registry_path: {}\n", leaf.display()));
+                            std::fs::write(
+                                leaf.join("manifest.yaml"),
+                                "schema_url: https://leaf.test/1.0.0\nstability: development\n",
+                            )
+                            .unwrap();
+                            std::fs::write(leaf.join("model.yaml"), &model).unwrap();
+                        }
+                        if published {
+                            let resolved = dependency.join("resolved.yaml");
+                            manifest.push_str(&format!(
+                                "file_format: manifest/2.0\nresolved_registry_uri: {}\n",
+                                resolved.display()
+                            ));
+                            let mut schema = resolve(&model, None).unwrap();
+                            schema.schema_url = "https://dependency.test/1.0.0".try_into().unwrap();
+                            std::fs::write(resolved, serde_yaml::to_string(&schema).unwrap())
+                                .unwrap();
+                        } else {
+                            std::fs::write(
+                                dependency.join("model.yaml"),
+                                if transitive { imports } else { &model },
+                            )
+                            .unwrap();
+                        }
+                        std::fs::write(dependency.join("manifest.yaml"), &manifest).unwrap();
+                        let path = weaver_common::vdir::VirtualDirectoryPath::LocalFolder {
+                            path: root.display().to_string(),
+                        };
+                        let repo = weaver_semconv::registry_repo::RegistryRepo::try_new(
+                            None,
+                            &path,
+                            &mut vec![],
+                        )
+                        .unwrap();
+                        let mut resolver = WeaverResolver::new(WeaverResolverConfig {
+                            stability: minimum.clone(),
+                            ..Default::default()
+                        });
+                        let (schema, _) = resolver
+                            .load_and_resolve_schema(repo, crate::DefaultSchemaVisitor)
+                            .into_result_with_non_fatal()
+                            .unwrap();
+                        let expected = if minimum.is_some() { 1 } else { 2 };
+                        let schema = match schema {
+                            crate::WeaverResolvedSchema::V1(schema) => schema.try_into().unwrap(),
+                            crate::WeaverResolvedSchema::V2(schema) => schema,
+                        };
+                        assert_eq!(schema.registry.metrics.len(), expected, "published={published} transitive={transitive} declared={declared} minimum={minimum:?}");
+                        let dependency_url = "https://dependency.test/1.0.0".try_into().unwrap();
+                        let (cached, _) = resolver
+                            .resolve_schema(&dependency_url)
+                            .into_result_with_non_fatal()
+                            .unwrap();
+                        if minimum.is_some() {
+                            let cached = cached.as_v2().unwrap();
+                            assert_eq!(cached.registry.metrics.len(), 1);
+                            assert!(cached
+                                .attribute_catalog
+                                .iter()
+                                .all(|a| a.common.stability == Stability::Stable));
+                        }
+                        assert_eq!(
+                            std::fs::read_to_string(dependency.join("manifest.yaml")).unwrap(),
+                            manifest
+                        );
+                    }
                 }
-            ));
-            assert!(load_dependencies(
-                Some(Stability::Stable),
-                Some("stable"),
-                Some("stable"),
-                published
-            )
-            .is_ok());
+            }
         }
     }
 }

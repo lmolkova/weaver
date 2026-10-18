@@ -193,7 +193,6 @@ impl WeaverResolver {
             registry_repo,
             self.config.follow_symlinks,
             &self.config.auth,
-            self.config.stability.as_ref(),
         )
     }
 
@@ -246,18 +245,11 @@ impl WeaverResolver {
                 &mut nfes,
                 &self.config.auth,
             ) {
-                Ok(repo) => {
-                    if let Some(minimum) = &self.config.stability {
-                        if let Err(error) = stability::check_dependency(&repo, minimum) {
-                            return WResult::FatalErr(error);
-                        }
-                    }
-                    match self.load_repository(repo) {
-                        WResult::Ok(l) => l,
-                        WResult::OkWithNFEs(l, _) => l,
-                        WResult::FatalErr(e) => return WResult::FatalErr(e),
-                    }
-                }
+                Ok(repo) => match self.load_repository(repo) {
+                    WResult::Ok(l) => l,
+                    WResult::OkWithNFEs(l, _) => l,
+                    WResult::FatalErr(e) => return WResult::FatalErr(e),
+                },
                 Err(e) => return WResult::FatalErr(Error::FailToResolveDefinition(e)),
             }
         } else {
@@ -513,57 +505,54 @@ impl WeaverResolver {
     /// and populating the internal LRU cache.
     pub(crate) fn resolve_loaded(
         &mut self,
-        loaded: LoadedSemconvRegistry,
+        mut loaded: LoadedSemconvRegistry,
     ) -> WResult<Arc<WeaverResolvedSchema>, Error> {
-        match loaded {
+        if let Some(minimum) = &self.config.stability {
+            if let Err(error) = stability::filter_loaded(&mut loaded, minimum) {
+                return WResult::FatalErr(error);
+            }
+        }
+        let result = match loaded {
             LoadedSemconvRegistry::Unresolved {
                 repo,
                 specs,
                 imports,
                 dependencies,
-            } => {
-                let res = self.resolve_registry_internal(repo, specs, imports, dependencies);
-                match res {
-                    WResult::Ok(resolved) => {
-                        let arc = Arc::new(WeaverResolvedSchema::V1(resolved));
-                        if let Ok(url) = SchemaUrl::try_from(arc.schema_url_str()) {
-                            _ = self.cache.put(url, arc.clone());
-                        }
-                        WResult::Ok(arc)
-                    }
-                    WResult::OkWithNFEs(resolved, nfes) => {
-                        let arc = Arc::new(WeaverResolvedSchema::V1(resolved));
-                        if let Ok(url) = SchemaUrl::try_from(arc.schema_url_str()) {
-                            _ = self.cache.put(url, arc.clone());
-                        }
-                        WResult::OkWithNFEs(arc, nfes)
-                    }
-                    WResult::FatalErr(e) => WResult::FatalErr(e),
-                }
-            }
+            } => self
+                .resolve_registry_internal(repo, specs, imports, dependencies)
+                .map(WeaverResolvedSchema::V1),
             LoadedSemconvRegistry::Resolved {
                 schema,
                 direct_dependencies,
             } => {
-                let arc = Arc::new(WeaverResolvedSchema::V1(schema));
-                if let Ok(url) = SchemaUrl::try_from(arc.schema_url_str()) {
+                if let Ok(url) = SchemaUrl::try_from(schema.schema_url.as_str()) {
                     self.record_direct_dependencies(&url, direct_dependencies);
-                    _ = self.cache.put(url, arc.clone());
                 }
-                WResult::Ok(arc)
+                WResult::Ok(WeaverResolvedSchema::V1(schema))
             }
             LoadedSemconvRegistry::ResolvedV2 {
                 schema,
                 direct_dependencies,
             } => {
-                let arc = Arc::new(WeaverResolvedSchema::V2(schema));
-                if let Ok(url) = SchemaUrl::try_from(arc.schema_url_str()) {
-                    self.record_direct_dependencies(&url, direct_dependencies);
-                    _ = self.cache.put(url, arc.clone());
-                }
-                WResult::Ok(arc)
+                self.record_direct_dependencies(&schema.schema_url, direct_dependencies);
+                WResult::Ok(WeaverResolvedSchema::V2(schema))
             }
+        };
+        let (mut resolved, nfes) = match result.into_result_with_non_fatal() {
+            Ok(result) => result,
+            Err(error) => return WResult::FatalErr(error),
+        };
+        if let Some(minimum) = &self.config.stability {
+            resolved = match stability::filter_bundle(resolved, minimum) {
+                Ok(resolved) => resolved,
+                Err(error) => return WResult::FatalErr(error),
+            };
         }
+        let arc = Arc::new(resolved);
+        if let Ok(url) = SchemaUrl::try_from(arc.schema_url_str()) {
+            _ = self.cache.put(url, arc.clone());
+        }
+        WResult::with_non_fatal_errors(arc, nfes)
     }
 
     /// Dynamically resolves and caches a given SchemaUrl on demand.
@@ -605,12 +594,7 @@ impl WeaverResolver {
             }
         };
 
-        if let Some(minimum) = &self.config.stability {
-            if let Err(error) = stability::check_dependency(&repo, minimum) {
-                return WResult::FatalErr(error);
-            }
-        }
-        let res = self.load_and_resolve_schema_inner(repo, DefaultSchemaVisitor, false);
+        let res = self.load_and_resolve_schema(repo, DefaultSchemaVisitor);
         match res {
             WResult::Ok(resolved) => {
                 if resolved.schema_url_str() != schema_url.as_str() {
@@ -644,18 +628,9 @@ impl WeaverResolver {
     pub fn load_and_resolve_schema<V: SchemaLoadingVisitor>(
         &mut self,
         registry_repo: RegistryRepo,
-        visitor: V,
-    ) -> WResult<WeaverResolvedSchema, Error> {
-        self.load_and_resolve_schema_inner(registry_repo, visitor, true)
-    }
-
-    fn load_and_resolve_schema_inner<V: SchemaLoadingVisitor>(
-        &mut self,
-        registry_repo: RegistryRepo,
         mut visitor: V,
-        filter: bool,
     ) -> WResult<WeaverResolvedSchema, Error> {
-        let (mut loaded, mut load_nfes) = match self.load_repository(registry_repo) {
+        let (loaded, mut load_nfes) = match self.load_repository(registry_repo) {
             WResult::Ok(loaded) => (loaded, vec![]),
             WResult::OkWithNFEs(loaded, nfes) => (loaded, nfes),
             WResult::FatalErr(e) => return WResult::FatalErr(e),
@@ -665,25 +640,13 @@ impl WeaverResolver {
             return WResult::FatalErr(Error::LoadingAbortedByVisitor);
         }
 
-        if let Some(minimum) = self.config.stability.as_ref().filter(|_| filter) {
-            if let Err(error) = stability::filter_loaded(&mut loaded, minimum) {
-                return WResult::FatalErr(error);
-            }
-        }
-
         let (arc, resolution_errors) =
             match self.resolve_loaded(loaded).into_result_with_non_fatal() {
                 Ok(result) => result,
                 Err(error) => return WResult::FatalErr(error),
             };
         load_nfes.extend(resolution_errors);
-        let mut resolved = Arc::unwrap_or_clone(arc);
-        if let Some(minimum) = self.config.stability.as_ref().filter(|_| filter) {
-            resolved = match stability::filter_bundle(resolved, minimum) {
-                Ok(resolved) => resolved,
-                Err(error) => return WResult::FatalErr(error),
-            };
-        }
+        let resolved = Arc::unwrap_or_clone(arc);
         WResult::with_non_fatal_errors(resolved, load_nfes)
     }
 
