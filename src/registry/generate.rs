@@ -27,6 +27,10 @@ use weaver_macros::weaver_command;
 #[weaver_command(section = "generate")]
 #[derive(Debug, Args, WeaverCommand)]
 pub struct RegistryGenerateArgs {
+    /// Minimum stability to include. Requires --v2; accepts mixed v1/v2 input.
+    #[arg(long)]
+    #[config]
+    pub stability: Option<weaver_semconv::v2::stability::Stability>,
     /// Target to generate the artifacts for.
     #[config_only(default = "")]
     pub target: Option<String>,
@@ -108,7 +112,8 @@ pub(crate) fn command(
         &cmd_config.policy,
         &cmd_config.resolve,
         auth,
-    );
+    )
+    .with_stability(cmd_config.config.stability.clone())?;
     let config = cmd_config.config;
     let resolved = weaver.load_and_resolve_main(&mut diag_msgs)?;
     let params = generate_params(args)?;
@@ -233,6 +238,25 @@ mod tests {
     }
 
     #[test]
+    fn test_stability_requires_v2() {
+        use clap::Parser;
+        let cli = Cli::try_parse_from([
+            "weaver",
+            "registry",
+            "generate",
+            "--stability",
+            "stable",
+            "--skip-policies",
+            "-r",
+            "tests/package/valid_registry",
+            "markdown",
+        ])
+        .unwrap();
+        let result = run_command(&cli);
+        assert_ne!(result.exit_code, 0);
+    }
+
+    #[test]
     fn test_registry_generate() {
         let temp_output = tempfile::Builder::new()
             .prefix("output")
@@ -247,6 +271,7 @@ mod tests {
             config: None,
             command: Some(Commands::Registry(RegistryCommand {
                 command: RegistrySubCommand::Generate(RegistryGenerateArgs {
+                    stability: None,
                     target: Some("rust".to_owned()),
                     output: Some(temp_output.clone()),
                     templates: Some("crates/weaver_codegen_test/templates/".to_owned()),
@@ -323,6 +348,7 @@ mod tests {
             config: None,
             command: Some(Commands::Registry(RegistryCommand {
                 command: RegistrySubCommand::Generate(RegistryGenerateArgs {
+                    stability: None,
                     target: Some("rust".to_owned()),
                     output: Some(temp_output.clone()),
                     templates: Some("crates/weaver_codegen_test/templates/".to_owned()),
@@ -362,6 +388,7 @@ mod tests {
             config: None,
             command: Some(Commands::Registry(RegistryCommand {
                 command: RegistrySubCommand::Generate(RegistryGenerateArgs {
+                    stability: None,
                     target: Some("rust".to_owned()),
                     output: Some(temp_output.clone()),
                     templates: Some("crates/weaver_codegen_test/templates/".to_owned()),
@@ -475,6 +502,7 @@ mod tests {
                 config: None,
                 command: Some(Commands::Registry(RegistryCommand {
                     command: RegistrySubCommand::Generate(RegistryGenerateArgs {
+                        stability: None,
                         target: Some("rust".to_owned()),
                         output: Some(temp_output.clone()),
                         templates: Some("crates/weaver_codegen_test/templates/".to_owned()),
@@ -550,6 +578,7 @@ mod tests {
             config: None,
             command: Some(Commands::Registry(RegistryCommand {
                 command: RegistrySubCommand::Generate(RegistryGenerateArgs {
+                    stability: None,
                     target: Some("markdown".to_owned()),
                     output: Some(temp_output.to_path_buf()),
                     templates: Some("tests/v2_forge/templates/".to_owned()),

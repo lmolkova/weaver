@@ -118,6 +118,36 @@ All commands accepting the `-r` or `--registry` parameter can be applied to your
 custom registry. It is important to note that some templates are specific to the
 OTEL registry. We are working to remove this type of limitation.
 
+## Filter packages and generation by stability
+
+`registry package` and `registry generate` accept `--stability <level>` with
+`--v2`. Input may contain both v1 and v2 definitions. The filter includes the
+requested level and everything above it:
+
+`development < alpha < beta < release_candidate < stable`
+
+Omitting the option preserves existing behavior. `development` includes all
+levels; `stable` includes only stable definitions, attributes, and enum members.
+Internal attribute groups remain resolution helpers, with their attributes
+filtered by stability. References to removed public groups are errors. Filtering
+that leaves an entity without identity attributes is also an error.
+
+When filtering, dependency manifests must declare the requested stability or
+higher. Each transitive dependency must be at least as stable as its parent.
+Missing manifest stability defaults to `development`. Dependencies are not
+rewritten: use a stable dependency package when producing a stable registry.
+Deprecation and code-generation exclusions remain separate from stability.
+
+```bash
+weaver registry package --v2 --stability stable -r ./model -o ./package \
+  --resolved-registry-uri https://example.com/schemas/1.0.0/resolved.yaml
+weaver registry generate --v2 --stability stable -r ./model -t ./templates rust ./generated
+```
+
+The package contains `manifest.yaml` and `resolved.yaml`. Its publication
+manifest records the selected stability; the schema URL remains the one supplied
+by the registry manifest.
+
 The `<path-to-your-registry>` parameter accepts a [Virtual Directory (`vdir`)](vdir.md)
 reference, which can be a local directory, a local or remote archive (`.zip`,
 `.tar.gz`), a remote file URL (such as a published registry manifest), or a Git

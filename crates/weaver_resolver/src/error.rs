@@ -14,6 +14,16 @@ use weaver_semconv::v1::attribute::AttributeRole;
 #[must_use]
 #[non_exhaustive]
 pub enum Error {
+    /// A dependency declares a lower stability than its consumer.
+    #[error("Dependency `{dependency}` has stability `{actual}`, below the required `{required}`. Use a dependency package with stability `{required}` or higher.")]
+    DependencyStability {
+        /// Schema URL of the dependency.
+        dependency: String,
+        /// Stability declared by the dependency manifest.
+        actual: weaver_semconv::v2::stability::Stability,
+        /// Minimum stability required by the consumer.
+        required: weaver_semconv::v2::stability::Stability,
+    },
     /// There was an issue resolving definition schema.
     #[error(transparent)]
     #[diagnostic(transparent)]

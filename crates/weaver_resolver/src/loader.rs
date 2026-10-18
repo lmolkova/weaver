@@ -184,7 +184,7 @@ pub(crate) fn load_semconv_repository(
     follow_symlinks: bool,
     auth: &HttpAuthResolver,
 ) -> WResult<LoadedSemconvRegistry, Error> {
-    load_semconv_repository_with_cache(None, registry_repo, follow_symlinks, auth)
+    load_semconv_repository_with_cache(None, registry_repo, follow_symlinks, auth, None)
 }
 
 pub(crate) fn load_semconv_repository_with_cache(
@@ -192,6 +192,7 @@ pub(crate) fn load_semconv_repository_with_cache(
     registry_repo: RegistryRepo,
     follow_symlinks: bool,
     auth: &HttpAuthResolver,
+    minimum: Option<&weaver_semconv::v2::stability::Stability>,
 ) -> WResult<LoadedSemconvRegistry, Error> {
     // This method simply sets up the resolution state and delegates to the actual work.
     let mut visited_registries = std::collections::HashSet::new();
@@ -215,6 +216,7 @@ pub(crate) fn load_semconv_repository_with_cache(
         &mut chosen_versions,
         &mut dependency_chain,
         auth,
+        minimum.cloned(),
     );
 
     if let WResult::Ok(_) | WResult::OkWithNFEs(_, _) = result {
@@ -255,7 +257,17 @@ fn load_semconv_repository_recursive(
     chosen_versions: &mut std::collections::HashMap<String, SchemaUrl>,
     dependency_chain: &mut Vec<String>,
     auth: &HttpAuthResolver,
+    minimum: Option<weaver_semconv::v2::stability::Stability>,
 ) -> WResult<LoadedSemconvRegistry, Error> {
+    let minimum = match minimum {
+        Some(required) if !dependency_chain.is_empty() => {
+            match crate::stability::check_dependency(&registry_repo, &required) {
+                Ok(actual) => Some(actual),
+                Err(error) => return WResult::FatalErr(error),
+            }
+        }
+        other => other,
+    };
     // Make sure we don't go past our max dependency depth.
     if max_dependency_depth == 0 {
         return WResult::FatalErr(Error::MaximumDependencyDepth {
@@ -308,7 +320,7 @@ fn load_semconv_repository_recursive(
         .unwrap_or_default();
 
     // Check for pre-resolved schema in cache.
-    if let Some(cache) = cache {
+    if let Some(cache) = cache.filter(|_| minimum.is_none()) {
         if let Some(arc) = find_pre_resolved(cache, &schema_url) {
             let loaded = match &*arc {
                 crate::WeaverResolvedSchema::V1(s) => LoadedSemconvRegistry::Resolved {
@@ -327,6 +339,61 @@ fn load_semconv_repository_recursive(
 
     // Either load a fully resolved repository, or read in raw files.
     if let Some(manifest) = registry_repo.manifest() {
+        // Load dependencies.
+        let mut loaded_dependencies = vec![];
+        let mut non_fatal_errors: Vec<Error> = vec![];
+        let mut seen_dependencies: std::collections::HashMap<String, &Dependency> =
+            std::collections::HashMap::new();
+
+        let dependencies = manifest.dependencies();
+        for d in dependencies
+            .iter()
+            .filter(|_| minimum.is_some() || registry_repo.resolved_registry_uri().is_none())
+        {
+            let dep_name = d.schema_url.name().to_owned();
+            if let Some(prev) = seen_dependencies.get(&dep_name) {
+                if let Err(e) = check_version_compatibility(prev, d) {
+                    // Clean up the state of dependency_chain before erroring.
+                    let _ = dependency_chain.pop();
+                    return WResult::FatalErr(e);
+                }
+            } else {
+                let _ = seen_dependencies.insert(dep_name, d);
+            }
+            let mut semconv_nfes: Vec<weaver_semconv::Error> = vec![];
+            match RegistryRepo::try_new_dependency_with_auth(d, &mut semconv_nfes, auth) {
+                Ok(d_repo) => {
+                    non_fatal_errors
+                        .extend(semconv_nfes.into_iter().map(Error::FailToResolveDefinition));
+                    // so we need to make sure the dependency chain only include direct dependencies of each other.
+                    match load_semconv_repository_recursive(
+                        cache,
+                        d_repo,
+                        follow_symlinks,
+                        max_dependency_depth - 1,
+                        visited_registries,
+                        chosen_versions,
+                        dependency_chain,
+                        auth,
+                        minimum.clone(),
+                    ) {
+                        WResult::Ok(d) => loaded_dependencies.push(d),
+                        WResult::OkWithNFEs(d, nfes) => {
+                            loaded_dependencies.push(d);
+                            non_fatal_errors.extend(nfes);
+                        }
+                        WResult::FatalErr(err) => {
+                            let _ = dependency_chain.pop();
+                            return WResult::FatalErr(err);
+                        }
+                    }
+                }
+                Err(err) => {
+                    let _ = dependency_chain.pop();
+                    return WResult::FatalErr(err.into());
+                }
+            }
+        }
         if let Some(resolved_url) = registry_repo.resolved_registry_uri() {
             let res = load_resolved_repository(&resolved_url, auth, declared_dependencies);
 
@@ -351,59 +418,8 @@ fn load_semconv_repository_recursive(
                 }
             }
             let _ = dependency_chain.pop();
-            res
+            res.extend_non_fatal_errors(non_fatal_errors)
         } else {
-            // Load dependencies.
-            let mut loaded_dependencies = vec![];
-            let mut non_fatal_errors: Vec<Error> = vec![];
-            let mut seen_dependencies: std::collections::HashMap<String, &Dependency> =
-                std::collections::HashMap::new();
-
-            let dependencies = manifest.dependencies();
-            for d in dependencies.iter() {
-                let dep_name = d.schema_url.name().to_owned();
-                if let Some(prev) = seen_dependencies.get(&dep_name) {
-                    if let Err(e) = check_version_compatibility(prev, d) {
-                        // Clean up the state of dependency_chain before erroring.
-                        let _ = dependency_chain.pop();
-                        return WResult::FatalErr(e);
-                    }
-                } else {
-                    let _ = seen_dependencies.insert(dep_name, d);
-                }
-                let mut semconv_nfes: Vec<weaver_semconv::Error> = vec![];
-                match RegistryRepo::try_new_dependency_with_auth(d, &mut semconv_nfes, auth) {
-                    Ok(d_repo) => {
-                        non_fatal_errors
-                            .extend(semconv_nfes.into_iter().map(Error::FailToResolveDefinition));
-                        // so we need to make sure the dependency chain only include direct dependencies of each other.
-                        match load_semconv_repository_recursive(
-                            cache,
-                            d_repo,
-                            follow_symlinks,
-                            max_dependency_depth - 1,
-                            visited_registries,
-                            chosen_versions,
-                            dependency_chain,
-                            auth,
-                        ) {
-                            WResult::Ok(d) => loaded_dependencies.push(d),
-                            WResult::OkWithNFEs(d, nfes) => {
-                                loaded_dependencies.push(d);
-                                non_fatal_errors.extend(nfes);
-                            }
-                            WResult::FatalErr(err) => {
-                                let _ = dependency_chain.pop();
-                                return WResult::FatalErr(err);
-                            }
-                        }
-                    }
-                    Err(err) => {
-                        let _ = dependency_chain.pop();
-                        return WResult::FatalErr(err.into());
-                    }
-                }
-            }
             // Now load the raw repository.
             // TODO - Allow ignoring dependency warnings - https://github.com/open-telemetry/weaver/issues/1126.
             let res =
@@ -654,6 +670,7 @@ mod tests {
             &mut chosen_versions,
             &mut dependency_chain,
             &weaver_common::http_auth::HttpAuthResolver::empty(),
+            None,
         );
 
         match result {

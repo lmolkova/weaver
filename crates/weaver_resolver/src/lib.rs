@@ -29,6 +29,7 @@ mod imports;
 mod loader;
 pub(crate) mod merge;
 mod registry;
+mod stability;
 
 use crate::conflict_strategy::{DependencyVersionConflictStrategy, UseLatestMajorVersion};
 pub use crate::error::Error;
@@ -89,6 +90,8 @@ impl WeaverResolvedSchema {
 /// Designed to evolve over time without breaking caller API contracts.
 #[derive(Debug, Clone)]
 pub struct WeaverResolverConfig {
+    /// Minimum stability to include when producing v2 output.
+    pub stability: Option<weaver_semconv::v2::stability::Stability>,
     /// Maximum number of fully resolved schemas to retain in the internal LRU cache.
     pub cache_capacity: NonZeroUsize,
 
@@ -109,6 +112,7 @@ pub struct WeaverResolverConfig {
 impl Default for WeaverResolverConfig {
     fn default() -> Self {
         Self {
+            stability: None,
             cache_capacity: NonZeroUsize::new(32).expect("32 is valid non-zero capacity"),
             follow_symlinks: false,
             include_unreferenced: false,
@@ -189,6 +193,7 @@ impl WeaverResolver {
             registry_repo,
             self.config.follow_symlinks,
             &self.config.auth,
+            self.config.stability.as_ref(),
         )
     }
 
@@ -241,11 +246,18 @@ impl WeaverResolver {
                 &mut nfes,
                 &self.config.auth,
             ) {
-                Ok(repo) => match self.load_repository(repo) {
-                    WResult::Ok(l) => l,
-                    WResult::OkWithNFEs(l, _) => l,
-                    WResult::FatalErr(e) => return WResult::FatalErr(e),
-                },
+                Ok(repo) => {
+                    if let Some(minimum) = &self.config.stability {
+                        if let Err(error) = stability::check_dependency(&repo, minimum) {
+                            return WResult::FatalErr(error);
+                        }
+                    }
+                    match self.load_repository(repo) {
+                        WResult::Ok(l) => l,
+                        WResult::OkWithNFEs(l, _) => l,
+                        WResult::FatalErr(e) => return WResult::FatalErr(e),
+                    }
+                }
                 Err(e) => return WResult::FatalErr(Error::FailToResolveDefinition(e)),
             }
         } else {
@@ -474,14 +486,13 @@ impl WeaverResolver {
             cache: &self.cache,
         };
 
-        let include_unreferenced = self.config.include_unreferenced;
         resolve_registry_with_dependencies(
             &mut attr_catalog,
             repo,
             specs,
             imports,
             resolved_dependencies,
-            include_unreferenced,
+            self.config.include_unreferenced,
             &lookup_ctx,
         )
         .map(move |resolved_registry| ResolvedTelemetrySchema {
@@ -594,7 +605,12 @@ impl WeaverResolver {
             }
         };
 
-        let res = self.load_and_resolve_schema(repo, DefaultSchemaVisitor);
+        if let Some(minimum) = &self.config.stability {
+            if let Err(error) = stability::check_dependency(&repo, minimum) {
+                return WResult::FatalErr(error);
+            }
+        }
+        let res = self.load_and_resolve_schema_inner(repo, DefaultSchemaVisitor, false);
         match res {
             WResult::Ok(resolved) => {
                 if resolved.schema_url_str() != schema_url.as_str() {
@@ -628,9 +644,18 @@ impl WeaverResolver {
     pub fn load_and_resolve_schema<V: SchemaLoadingVisitor>(
         &mut self,
         registry_repo: RegistryRepo,
-        mut visitor: V,
+        visitor: V,
     ) -> WResult<WeaverResolvedSchema, Error> {
-        let (loaded, mut load_nfes) = match self.load_repository(registry_repo) {
+        self.load_and_resolve_schema_inner(registry_repo, visitor, true)
+    }
+
+    fn load_and_resolve_schema_inner<V: SchemaLoadingVisitor>(
+        &mut self,
+        registry_repo: RegistryRepo,
+        mut visitor: V,
+        filter: bool,
+    ) -> WResult<WeaverResolvedSchema, Error> {
+        let (mut loaded, mut load_nfes) = match self.load_repository(registry_repo) {
             WResult::Ok(loaded) => (loaded, vec![]),
             WResult::OkWithNFEs(loaded, nfes) => (loaded, nfes),
             WResult::FatalErr(e) => return WResult::FatalErr(e),
@@ -640,21 +665,26 @@ impl WeaverResolver {
             return WResult::FatalErr(Error::LoadingAbortedByVisitor);
         }
 
-        match self.resolve_loaded(loaded) {
-            WResult::Ok(arc) => {
-                let owned = Arc::unwrap_or_clone(arc);
-                if load_nfes.is_empty() {
-                    WResult::Ok(owned)
-                } else {
-                    WResult::OkWithNFEs(owned, load_nfes)
-                }
+        if let Some(minimum) = self.config.stability.as_ref().filter(|_| filter) {
+            if let Err(error) = stability::filter_loaded(&mut loaded, minimum) {
+                return WResult::FatalErr(error);
             }
-            WResult::OkWithNFEs(arc, res_nfes) => {
-                load_nfes.extend(res_nfes);
-                WResult::OkWithNFEs(Arc::unwrap_or_clone(arc), load_nfes)
-            }
-            WResult::FatalErr(e) => WResult::FatalErr(e),
         }
+
+        let (arc, resolution_errors) =
+            match self.resolve_loaded(loaded).into_result_with_non_fatal() {
+                Ok(result) => result,
+                Err(error) => return WResult::FatalErr(error),
+            };
+        load_nfes.extend(resolution_errors);
+        let mut resolved = Arc::unwrap_or_clone(arc);
+        if let Some(minimum) = self.config.stability.as_ref().filter(|_| filter) {
+            resolved = match stability::filter_bundle(resolved, minimum) {
+                Ok(resolved) => resolved,
+                Err(error) => return WResult::FatalErr(error),
+            };
+        }
+        WResult::with_non_fatal_errors(resolved, load_nfes)
     }
 
     /// Manually injects a pre-resolved schema bundle into the LRU cache.

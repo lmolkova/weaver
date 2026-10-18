@@ -50,6 +50,7 @@ impl<'a> SchemaLoadingVisitor for PolicyVisitor<'a> {
 
 /// Engine that loads, resolves, and policy-checks a semantic convention registry.
 pub struct WeaverEngine<'a> {
+    stability: Option<weaver_semconv::v2::stability::Stability>,
     registry_config: &'a EffectiveRegistryConfig,
     policy_config: &'a EffectivePolicyConfig,
     resolve_config: &'a EffectiveResolveConfig,
@@ -66,11 +67,24 @@ impl<'a> WeaverEngine<'a> {
         auth: &'a HttpAuthResolver,
     ) -> Self {
         Self {
+            stability: None,
             registry_config: registry,
             policy_config: policy,
             resolve_config: resolve,
             auth,
         }
+    }
+
+    /// Selects the minimum stability for v2 output, including mixed input.
+    pub fn with_stability(
+        mut self,
+        stability: Option<weaver_semconv::v2::stability::Stability>,
+    ) -> Result<Self, Error> {
+        if stability.is_some() && !self.registry_config.v2 {
+            return Err(Error::StabilityRequiresV2);
+        }
+        self.stability = stability;
+        Ok(self)
     }
 
     /// Loads previously resolved schemas or loads and resolves "raw" definitions, executing all policies there-in.
@@ -97,6 +111,7 @@ impl<'a> WeaverEngine<'a> {
         let policy_engine = prepare_policy_engine(self.policy_config, &repo, self.auth)?;
 
         let config = WeaverResolverConfig {
+            stability: self.stability.clone(),
             follow_symlinks: self.registry_config.follow_symlinks,
             include_unreferenced: self.registry_config.include_unreferenced,
             auth: self.auth.clone(),
@@ -551,6 +566,9 @@ impl DiffV2 {
 #[derive(thiserror::Error, Debug, Clone, Serialize, Diagnostic)]
 #[non_exhaustive]
 pub enum Error {
+    /// Stability filtering requires v2 output.
+    #[error("Stability filtering requires --v2")]
+    StabilityRequiresV2,
     #[error(transparent)]
     Common(#[from] weaver_common::Error),
     #[error(transparent)]

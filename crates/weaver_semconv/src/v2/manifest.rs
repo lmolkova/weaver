@@ -316,6 +316,15 @@ impl RegistryManifest {
             RegistryManifest::Publication(m) => m.description.as_deref(),
         }
     }
+
+    /// Returns the registry's declared stability.
+    #[must_use]
+    pub fn stability(&self) -> &Stability {
+        match self {
+            RegistryManifest::Definition(m) => &m.stability,
+            RegistryManifest::Publication(m) => &m.stability,
+        }
+    }
 }
 
 /// Represents the publication manifest for a packaged semantic convention registry.

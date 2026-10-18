@@ -141,6 +141,7 @@ The process exits with a code of 0 if the generation is successful.
 
 ###### **Options:**
 
+* `--stability <STABILITY>` — Minimum stability to include. Requires --v2; accepts mixed v1/v2 input
 * `-t`, `--templates <TEMPLATES>` — Path to the directory where the templates are located. Default is the `templates` directory. [default: templates]
 * `-c`, `--config <CONFIG>` — List of `weaver.yaml` configuration files to use. When there is a conflict, the last one will override the previous ones for the keys that are defined in both
 * `-D`, `--param <PARAM>` — Parameters key=value, defined in the command line, to pass to the templates. The value must be a valid YAML value
@@ -618,6 +619,7 @@ Packages a semantic convention registry into a self-contained artifact.
 
 ###### **Options:**
 
+* `--stability <STABILITY>` — Minimum stability to include. Requires --v2; accepts mixed v1/v2 input
 * `-r`, `--registry <REGISTRY>` — Local folder, Git repo URL, or Git archive URL of the semantic convention registry. For Git URLs, a reference can be specified using the `@refspec` syntax and a sub-folder can be specified using the `[sub-folder]` syntax after the URL. [default: `https://github.com/open-telemetry/semantic-conventions.git[model]`]
 * `-s`, `--follow-symlinks <FOLLOW_SYMLINKS>` — Boolean flag to specify whether to follow symlinks when loading the registry. A bare `--follow-symlinks` means `true`; use the `=` form (e.g. `--follow-symlinks=false`) to override a `.weaver.toml` value from the CLI. [default: false]
 

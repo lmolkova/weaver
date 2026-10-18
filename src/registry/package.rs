@@ -25,6 +25,10 @@ use weaver_macros::weaver_command;
 #[weaver_command(section = "package")]
 #[derive(Debug, Args, WeaverCommand)]
 pub struct RegistryPackageArgs {
+    /// Minimum stability to include. Requires --v2; accepts mixed v1/v2 input.
+    #[arg(long)]
+    #[config]
+    stability: Option<weaver_semconv::v2::stability::Stability>,
     /// Parameters to specify the semantic convention registry
     #[command(flatten)]
     #[shared(registry)]
@@ -97,7 +101,8 @@ pub(crate) fn command(
         &cmd_config.policy,
         &cmd_config.resolve,
         auth,
-    );
+    )
+    .with_stability(cmd_config.config.stability.clone())?;
     let registry_path = &cmd_config.registry.registry;
 
     let mut nfes = vec![];
@@ -138,10 +143,14 @@ pub(crate) fn command(
         path: output.clone(),
         error: e.to_string(),
     })?;
-    let publication_manifest = PublicationRegistryManifest::try_from_registry_manifest(
+    let mut publication_manifest = PublicationRegistryManifest::try_from_registry_manifest(
         &definition_manifest,
         resolved_registry_uri,
     )?;
+
+    if let Some(stability) = cmd_config.config.stability {
+        publication_manifest.stability = stability;
+    }
 
     write_yaml(&output.join("resolved.yaml"), resolved_v2.resolved_schema())?;
     write_yaml(&output.join("manifest.yaml"), &publication_manifest)?;
@@ -178,6 +187,7 @@ mod tests {
         resolved_registry_uri: &str,
     ) -> RegistryPackageArgs {
         RegistryPackageArgs {
+            stability: None,
             registry: RegistryArgs {
                 registry: Some(VirtualDirectoryPath::LocalFolder {
                     path: registry_path.to_owned(),
@@ -240,6 +250,88 @@ mod tests {
         assert_eq!(
             manifest.description.as_deref(),
             Some("A test registry for packaging tests.")
+        );
+    }
+
+    #[test]
+    fn test_package_stability_filters_and_can_be_loaded_again() {
+        use clap::Parser;
+        use weaver_semconv::v2::stability::Stability;
+        let input = tempfile::Builder::new()
+            .prefix("stability-input-")
+            .tempdir()
+            .unwrap();
+        fs::write(
+            input.path().join("manifest.yaml"),
+            "schema_url: https://test/schemas/1.0.0\nstability: development\n",
+        )
+        .unwrap();
+        fs::write(input.path().join("model.yaml"), "file_format: definition/2\nattributes:\n  - key: stable.attr\n    type: int\n    brief: Stable attribute\n    stability: stable\n  - key: dev.attr\n    type: int\n    brief: Development attribute\n    stability: development\n").unwrap();
+        let output = tempfile::tempdir().unwrap();
+        let resolved_path = output.path().join("resolved.yaml");
+        let mut args = make_args(
+            input.path().to_str().unwrap(),
+            output.path().to_owned(),
+            true,
+            resolved_path.to_str().unwrap(),
+        );
+        args.stability = Some(Stability::Stable);
+        let result = command(&args, None, &HttpAuthResolver::empty()).unwrap();
+        assert_eq!(result.exit_code, 0);
+        let manifest: PublicationRegistryManifest =
+            serde_yaml::from_str(&fs::read_to_string(output.path().join("manifest.yaml")).unwrap())
+                .unwrap();
+        assert_eq!(manifest.stability, Stability::Stable);
+        let schema: weaver_resolved_schema::v2::ResolvedTelemetrySchema =
+            serde_yaml::from_str(&fs::read_to_string(resolved_path).unwrap()).unwrap();
+        assert_eq!(schema.attribute_catalog.len(), 1);
+        assert_eq!(schema.attribute_catalog[0].key, "stable.attr");
+        let path = VirtualDirectoryPath::LocalFolder {
+            path: output.path().display().to_string(),
+        };
+        let repo = RegistryRepo::try_new(None, &path, &mut vec![]).unwrap();
+        let mut resolver = weaver_resolver::WeaverResolver::new(Default::default());
+        let (loaded, _) = resolver
+            .load_and_resolve_schema(repo, weaver_resolver::DefaultSchemaVisitor)
+            .into_result_with_non_fatal()
+            .unwrap();
+        assert_eq!(
+            loaded.as_v2().unwrap().attribute_catalog[0].key,
+            "stable.attr"
+        );
+
+        let templates = tempfile::tempdir().unwrap();
+        fs::create_dir_all(templates.path().join("check")).unwrap();
+        fs::write(templates.path().join("check/weaver.yaml"), "templates:\n  - template: result.j2\n    filter: '.'\n    application_mode: single\n    file_name: result.txt\n").unwrap();
+        fs::write(
+            templates.path().join("check/result.j2"),
+            "{% for attr in ctx.registry.attributes %}{{ attr.key }}\n{% endfor %}",
+        )
+        .unwrap();
+        let generated = tempfile::tempdir().unwrap();
+        let cli = crate::Cli::try_parse_from([
+            "weaver",
+            "registry",
+            "generate",
+            "--v2",
+            "--stability",
+            "stable",
+            "--skip-policies",
+            "-r",
+            input.path().to_str().unwrap(),
+            "-t",
+            templates.path().to_str().unwrap(),
+            "check",
+            generated.path().to_str().unwrap(),
+        ])
+        .unwrap();
+        let result = crate::run_command(&cli);
+        assert_eq!(result.exit_code, 0);
+        assert_eq!(
+            fs::read_to_string(generated.path().join("result.txt"))
+                .unwrap()
+                .trim(),
+            "stable.attr"
         );
     }
 

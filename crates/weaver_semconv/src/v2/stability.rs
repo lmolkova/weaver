@@ -33,6 +33,38 @@ impl Default for Stability {
     }
 }
 
+impl Stability {
+    /// Whether this level meets the requested minimum stability.
+    #[must_use]
+    pub fn meets(&self, minimum: &Self) -> bool {
+        fn rank(level: &Stability) -> u8 {
+            match level {
+                Stability::Development => 0,
+                Stability::Alpha => 1,
+                Stability::Beta => 2,
+                Stability::ReleaseCandidate => 3,
+                Stability::Stable => 4,
+            }
+        }
+        rank(self) >= rank(minimum)
+    }
+}
+
+impl std::str::FromStr for Stability {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "development" => Ok(Self::Development),
+            "alpha" => Ok(Self::Alpha),
+            "beta" => Ok(Self::Beta),
+            "release_candidate" => Ok(Self::ReleaseCandidate),
+            "stable" => Ok(Self::Stable),
+            _ => Err(format!("Invalid stability `{value}`; expected development, alpha, beta, release_candidate, or stable")),
+        }
+    }
+}
+
 /// Implements a human readable display for the stability.
 impl Display for Stability {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
@@ -49,6 +81,22 @@ impl Display for Stability {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn minimum_stability_includes_requested_level_and_above() {
+        let levels = [
+            Stability::Development,
+            Stability::Alpha,
+            Stability::Beta,
+            Stability::ReleaseCandidate,
+            Stability::Stable,
+        ];
+        for (minimum_rank, minimum) in levels.iter().enumerate() {
+            for (rank, level) in levels.iter().enumerate() {
+                assert_eq!(level.meets(minimum), rank >= minimum_rank);
+            }
+        }
+    }
 
     #[test]
     fn test_deserialize_stability() {
